@@ -1,7 +1,7 @@
 /** @file
   This includes some definitions introduced in UEFI that will be used in both PEI and DXE phases.
 
-Copyright (c) 2006 - 2017, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2006 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials are licensed and made available under
 the terms and conditions of the BSD License that accompanies this distribution.
 The full text of the license may be found at
@@ -31,6 +31,13 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 ///
 #define EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS   0x00000020
 #define EFI_VARIABLE_APPEND_WRITE                            0x00000040
+///
+///This attribute indicates that the variable payload begins
+///with an EFI_VARIABLE_AUTHENTICATION_3 structure, and
+///potentially more structures as indicated by fields of this structure.
+///
+#define EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS           0x00000080
+
 ///
 /// NOTE: EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS is deprecated and should be considered reserved.
 ///
@@ -230,6 +237,79 @@ typedef struct {
   ///
   WIN_CERTIFICATE_UEFI_GUID   AuthInfo;
  } EFI_VARIABLE_AUTHENTICATION_2;
+
+///
+/// EFI_VARIABLE_AUTHENTICATION_3_CERT_ID descriptor
+///
+/// An extensible structure to identify a unique x509 cert
+/// associated with a given variable
+///
+#define EFI_VARIABLE_AUTHENTICATION_3_CERT_ID_SHA256  1
+
+typedef struct {
+  UINT8                Type; 
+  UINT32               IdSize;
+  // UINT8             Id[IdSize];
+} EFI_VARIABLE_AUTHENTICATION_3_CERT_ID; 
+
+///
+/// EFI_VARIABLE_AUTHENTICATION_3_NONCE descriptor
+///
+/// A nonce-based authentication method descriptor template. This
+/// structure will always be followed by a
+/// WIN_CERTIFICATE_UEFI_GUID structure. 
+///
+typedef struct { 
+  UINT32                    NonceSize;
+  // UINT8                  Nonce[NonceSize]; 
+} EFI_VARIABLE_AUTHENTICATION_3_NONCE;
+
+
+
+#define EFI_VARIABLE_AUTHENTICATION_3_TIMESTAMP_TYPE  1
+#define EFI_VARIABLE_AUTHENTICATION_3_NONCE_TYPE      2
+
+/// 
+/// The presence of this flag in AUTH_3.Flags on SetVariable() indicates that there are two instances of
+/// the WIN_CERTIFICATE_UEFI_GUID structure following the type-specific 
+/// structures. The first instance describes the new cert to be set as the authority for the variable.
+/// 
+#define EFI_VARIABLE_ENHANCED_AUTH_FLAG_UPDATE_CERT 0x00000001 
+
+///
+/// EFI_VARIABLE_AUTHENTICATION_3 descriptor
+///
+/// An extensible implementation of the Variable Authentication
+/// structure.
+/// The MetadataSize field of the EFI_VARIABLE_AUTHENTICATION_3 structure in each of these
+/// examples does not include any WIN_CERTIFICATE_UEFI_GUID structures.
+///
+typedef struct {
+  ///
+  /// This field is used in case the EFI_VARIABLE_AUTHENTICATION_3 structure itself ever requires updating. 
+  /// For now, it is hardcoded to "0x1".
+  ///
+  UINT8                Version;
+  ///
+  /// Declares what structure immediately follows this structure in the Variable Data payload.
+  ///
+  UINT8                Type;
+  ///
+  /// Declares the size of all variable authentication metadata (data related to the authentication 
+  /// of the variable that is not variable data itself), including this header structure, and type-specific 
+  /// structures (eg. EFI_VARIABLE_AUTHENTICATION_3_NONCE), and any WIN_CERTIFICATE_UEFI_GUID 
+  /// structures(SetVariable case). 
+  ///
+  UINT32               MetadataSize;
+  ///
+  /// Bitfield indicating any optional configuration for this call.
+  ///   NOTE: All other bits are currently Reserved on SetVariable().
+  ///   NOTE: All flags are reserved on GetVariable().
+  ///
+  UINT32               Flags;
+} EFI_VARIABLE_AUTHENTICATION_3;
+
+
 #endif // VFRCOMPILE
 
 #endif
