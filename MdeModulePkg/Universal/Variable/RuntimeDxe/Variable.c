@@ -16,7 +16,7 @@
   VariableServiceSetVariable() should also check authenticate data to avoid buffer overflow,
   integer overflow. It should also check attribute to avoid authentication bypass.
 
-Copyright (c) 2006 - 2017, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2006 - 2018, Intel Corporation. All rights reserved.<BR>
 (C) Copyright 2015 Hewlett Packard Enterprise Development LP<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
@@ -95,7 +95,127 @@ AUTH_VAR_LIB_CONTEXT_IN mAuthContextIn = {
   VariableExLibAtRuntime,
 };
 
-AUTH_VAR_LIB_CONTEXT_OUT mAuthContextOut;
+AUTH_VAR_LIB_CONTEXT_OUT       mAuthContextOut;
+
+EFI_VARIABLE_AUTHENTICATION_3  mAuth3Template = {
+  0x01,   // Version. Current version is 0x01
+  0,      // Type
+  0,      // MetadataSize
+  0,      // Flags. All other bits are currently Reserved on SetVariable(). All flags are reserved on GetVariable(). 
+  };
+
+EFI_STATUS
+Auth3SantiyCheck(
+  IN  UINT8    *Data,
+  IN  UINTN    DataSize
+  )
+{
+  UINTN                               Offset;
+  EFI_VARIABLE_AUTHENTICATION_3       *Auth3;
+  UINT32                              DwLength;
+  UINT32                              NonceSize;
+
+  Auth3  = (EFI_VARIABLE_AUTHENTICATION_3 *)Data;
+  Offset = sizeof(EFI_VARIABLE_AUTHENTICATION_3);
+
+  if (DataSize < sizeof(EFI_VARIABLE_AUTHENTICATION_3)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  if (DataSize < Auth3->MetadataSize) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  //
+  // Version check
+  //
+  if (Auth3->Version != mAuth3Template.Version) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  //
+  // Type sanity check
+  //
+  if (Auth3->Type == EFI_VARIABLE_AUTHENTICATION_3_TIMESTAMP_TYPE) {
+    //
+    // Data format is
+    // EFI_VARIABLE_AUTHENTICATION_3 || EFI_TIME || [ NewCert ] || SigningCert || Data
+    //
+    Offset += sizeof(EFI_TIME);
+  } else if (Auth3->Type == EFI_VARIABLE_AUTHENTICATION_3_NONCE_TYPE) {
+    //
+    // Data format : EFI_VARIABLE_AUTHENTICATION_3 || EFI_VARIABLE_AUTHENTICATION_3_NONCE || [ NewCert ] || SigningCert || Data
+    //
+    NonceSize = ReadUnaligned32(&(((EFI_VARIABLE_AUTHENTICATION_3_NONCE *)(Auth3 + 1))->NonceSize));
+
+    //
+    // NonceSize must not be 0
+    //
+    if (NonceSize == 0) {
+      return EFI_INVALID_PARAMETER;
+    }
+
+    if (REMAINING_DATASIZE(DataSize, Offset) > sizeof(EFI_VARIABLE_AUTHENTICATION_3_NONCE)
+     && REMAINING_DATASIZE(DataSize, Offset + sizeof(EFI_VARIABLE_AUTHENTICATION_3_NONCE)) > NonceSize) {
+      Offset += sizeof(EFI_VARIABLE_AUTHENTICATION_3_NONCE) + NonceSize;
+    } else {
+      return EFI_INVALID_PARAMETER;
+    }
+  } else {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  //
+  // Flag sanity check
+  //
+  if ((Auth3->Flags != 0)) {
+    if ((Auth3->Flags & EFI_VARIABLE_ENHANCED_AUTH_FLAG_UPDATE_CERT) != 0) {
+      //
+      // [NewCert]  WIN_CERTIFICATE_UEFI_GUID descriptor sanity check
+      //
+      if (REMAINING_DATASIZE(DataSize, Offset) <= OFFSET_OF (WIN_CERTIFICATE_UEFI_GUID, CertData)) {
+        return EFI_SECURITY_VIOLATION;
+      }
+
+      DwLength = ReadUnaligned32((UINT32 *)(Data + Offset + OFFSET_OF(WIN_CERTIFICATE_UEFI_GUID, Hdr) + OFFSET_OF(WIN_CERTIFICATE, dwLength)));
+      if (DwLength > REMAINING_DATASIZE(DataSize, Offset) ||
+          DwLength < OFFSET_OF (WIN_CERTIFICATE_UEFI_GUID, CertData)) {
+        return EFI_SECURITY_VIOLATION;
+      }
+      Offset += DwLength;
+    } else {
+      //
+      // UEFI2.7 only defines EFI_VARIABLE_ENHANCED_AUTH_FLAG_UPDATE_CERT for Auth3.Flags
+      //
+      return EFI_INVALID_PARAMETER;
+    }
+  }
+
+  //
+  // SigningCert WIN_CERTIFICATE_UEFI_GUID descriptor sanity check
+  //
+  if (REMAINING_DATASIZE(DataSize, Offset) <= OFFSET_OF (WIN_CERTIFICATE_UEFI_GUID, CertData)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  DwLength = ReadUnaligned32((UINT32 *)(Data + Offset + OFFSET_OF(WIN_CERTIFICATE_UEFI_GUID, Hdr) + OFFSET_OF(WIN_CERTIFICATE, dwLength)));
+  if (DwLength > REMAINING_DATASIZE(DataSize, Offset) ||
+      DwLength < OFFSET_OF (WIN_CERTIFICATE_UEFI_GUID, CertData)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+  Offset += DwLength;
+
+  //
+  // Finnally, MetadataSize sanity check
+  //
+  if (Auth3->MetadataSize != Offset) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  return EFI_SUCCESS;
+}
+
+
 
 /**
   Routine used to track statistical information about variable usage.
@@ -2347,7 +2467,7 @@ UpdateVariable (
         //
         // Set Max Common/Auth Variable Data Size as default MaxDataSize.
         //
-        if ((Attributes & VARIABLE_ATTRIBUTE_AT_AW) != 0) {
+        if ((Attributes & VARIABLE_ATTRIBUTE_AT_EA_AW) != 0) {
           MaxDataSize = mVariableModuleGlobal->MaxAuthVariableSize - DataOffset;
         } else {
           MaxDataSize = mVariableModuleGlobal->MaxVariableSize - DataOffset;
@@ -2406,8 +2526,8 @@ UpdateVariable (
     // Not found existing variable. Create a new variable.
     //
 
-    if ((DataSize == 0) && ((Attributes & EFI_VARIABLE_APPEND_WRITE) != 0)) {
-      Status = EFI_SUCCESS;
+    if ((Attributes & EFI_VARIABLE_APPEND_WRITE) != 0) {
+      Status = EFI_NOT_FOUND;
       goto Done;
     }
 
@@ -2445,7 +2565,7 @@ UpdateVariable (
     AuthVariable->MonotonicCount = MonotonicCount;
     ZeroMem (&AuthVariable->TimeStamp, sizeof (EFI_TIME));
 
-    if (((Attributes & EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS) != 0) &&
+    if (((Attributes & (EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS | EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS)) != 0) &&
         (TimeStamp != NULL)) {
       if ((Attributes & EFI_VARIABLE_APPEND_WRITE) == 0) {
         CopyMem (&AuthVariable->TimeStamp, TimeStamp, sizeof (EFI_TIME));
@@ -2793,9 +2913,17 @@ VariableServiceGetVariable (
   OUT     VOID              *Data OPTIONAL
   )
 {
-  EFI_STATUS              Status;
-  VARIABLE_POINTER_TRACK  Variable;
-  UINTN                   VarDataSize;
+  EFI_STATUS                            Status;
+  VARIABLE_POINTER_TRACK                Variable;
+  UINTN                                 VarDataSize;
+  UINTN                                 MetaDataSize;
+  UINTN                                 Offset;
+  EFI_VARIABLE_AUTHENTICATION_3_CERT_ID CertIdHeader;
+  EFI_VARIABLE_AUTHENTICATION_3_NONCE   NonceHeader;
+  UINT8                                 *CertId;
+  UINT8                                 *Nonce;
+  UINT8                                 Type;
+  EFI_VARIABLE_AUTHENTICATION_3         Auth3;
 
   if (VariableName == NULL || VendorGuid == NULL || DataSize == NULL) {
     return EFI_INVALID_PARAMETER;
@@ -2812,32 +2940,133 @@ VariableServiceGetVariable (
     goto Done;
   }
 
+  MetaDataSize = 0;
+  Offset       = 0;
+  Nonce        = NULL;
+  CertId       = NULL;
+  Type         = 0;
+
+  //
+  // Variable stored with the EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS attribute set
+  // will return metadata in addition to variable data
+  //
+  if (mVariableModuleGlobal->VariableGlobal.AuthSupport
+   && ((Variable.CurrPtr->Attributes & EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS) != 0)) {
+    Status = AuthVariableLibGetEnhancedAuthVarInfo(
+               VariableName,
+               VendorGuid,
+               Variable.CurrPtr->Attributes,
+               &CertIdHeader,
+               &CertId,
+               &NonceHeader,
+               &Nonce,
+               &Type
+               );
+    if (EFI_ERROR(Status)){
+      DEBUG((DEBUG_ERROR, "GetEnhancedAuthInfo failed. Status %r\n", Status));
+      goto Done;
+    }
+
+    if (Type == EFI_VARIABLE_AUTHENTICATION_3_TIMESTAMP_TYPE) {
+      //
+      // AUTH_3 type is EFI_VARIABLE_AUTHENTICATION_3_TIMESTAMP_TYPE, return data format
+      //     EFI_VARIABLE_AUTHENTICATION_3 || EFI_TIME || EFI_VARIABLE_AUTHENTICATION_3_CERT_ID || Data
+      //
+      MetaDataSize = sizeof(EFI_VARIABLE_AUTHENTICATION_3) + sizeof(EFI_TIME) + sizeof(EFI_VARIABLE_AUTHENTICATION_3_CERT_ID) + CertIdHeader.IdSize;
+    } else if (Type == EFI_VARIABLE_AUTHENTICATION_3_NONCE_TYPE) {
+      //
+      // AUTH_3 type is  EFI_VARIABLE_AUTHENTICATION_3_NONCE_TYPE, return data format
+      //     EFI_VARIABLE_AUTHENTICATION_3 || EFI_VARIABLE_AUTHENTICATION_3_NONCE || EFI_VARIABLE_AUTHENTICATION_3_CERT_ID || Data
+      //
+      MetaDataSize = sizeof(EFI_VARIABLE_AUTHENTICATION_3) + sizeof(EFI_VARIABLE_AUTHENTICATION_3_NONCE) + NonceHeader.NonceSize + \
+                     sizeof(EFI_VARIABLE_AUTHENTICATION_3_CERT_ID) + CertIdHeader.IdSize;
+    } else {
+      ASSERT(FALSE);
+      Status =  EFI_ACCESS_DENIED;
+      goto Done;
+    }
+  }
+
   //
   // Get data size
   //
   VarDataSize = DataSizeOfVariable (Variable.CurrPtr);
   ASSERT (VarDataSize != 0);
 
-  if (*DataSize >= VarDataSize) {
+  //
+  // Since MetaDataSize is constrained by MaxVariableSize, VarDataSize + MetaDataSize can't overflow
+  //
+  if (*DataSize >= (VarDataSize + MetaDataSize)) {
     if (Data == NULL) {
       Status = EFI_INVALID_PARAMETER;
       goto Done;
     }
 
-    CopyMem (Data, GetVariableDataPtr (Variable.CurrPtr), VarDataSize);
+    //
+    // Enhanced authenticated variable case, construct metadata in addtion to variable data
+    //
+    if (MetaDataSize != 0) {
+      //
+      // Return data starts with EFI_VARIABLE_AUTHENTICATION_3
+      //
+      CopyMem(&Auth3, &mAuth3Template, sizeof(EFI_VARIABLE_AUTHENTICATION_3));
+      Auth3.Type = Type;
+
+      //
+      // In GetVariable case, MetadataSize does not include any WIN_CERTIFICATE_UEFI_GUID structures
+      //
+      Auth3.MetadataSize = (UINT32)MetaDataSize;
+      CopyMem(Data, &Auth3, sizeof(EFI_VARIABLE_AUTHENTICATION_3));
+      Offset += sizeof(EFI_VARIABLE_AUTHENTICATION_3);
+
+      //
+      // Concatenate Timestamp or Nonce
+      //
+      if (Type == EFI_VARIABLE_AUTHENTICATION_3_TIMESTAMP_TYPE) {
+        CopyMem((UINT8 *)Data + Offset, &((AUTHENTICATED_VARIABLE_HEADER *)Variable.CurrPtr)->TimeStamp, sizeof(EFI_TIME));
+        Offset += sizeof(EFI_TIME);
+      } else {
+        //
+        // Concatenate EFI_VARIABLE_AUTHENTICATION_3_NONCE
+        //
+        CopyMem((UINT8 *)Data + Offset, &NonceHeader, sizeof(EFI_VARIABLE_AUTHENTICATION_3_NONCE));
+        Offset += sizeof(EFI_VARIABLE_AUTHENTICATION_3_NONCE);
+
+        //
+        // Concatenate Nonce data after EFI_VARIABLE_AUTHENTICATION_3_NONCE
+        //
+        CopyMem((UINT8 *)Data + Offset, Nonce, NonceHeader.NonceSize);
+        Offset += NonceHeader.NonceSize;
+      }
+
+      //
+      // Concatenate EFI_VARIABLE_AUTHENTICATION_3_CERT_ID
+      //
+      CopyMem((UINT8 *)Data + Offset, &CertIdHeader, sizeof(EFI_VARIABLE_AUTHENTICATION_3_CERT_ID));
+      Offset += sizeof(EFI_VARIABLE_AUTHENTICATION_3_CERT_ID);
+      //
+      // Concatenate CertData after EFI_VARIABLE_AUTHENTICATION_3_CERT_ID. Data size is identified in CertIdHeader
+      //
+      CopyMem((UINT8 *)Data + Offset, CertId, CertIdHeader.IdSize);
+      Offset += CertIdHeader.IdSize;
+    }
+
+    //
+    // Copy variable data
+    //
+    CopyMem ((UINT8 *)Data + Offset, GetVariableDataPtr (Variable.CurrPtr), VarDataSize);
+
     if (Attributes != NULL) {
       *Attributes = Variable.CurrPtr->Attributes;
     }
 
-    *DataSize = VarDataSize;
+    *DataSize = VarDataSize + MetaDataSize;
     UpdateVariableInfo (VariableName, VendorGuid, Variable.Volatile, TRUE, FALSE, FALSE, FALSE);
 
     Status = EFI_SUCCESS;
-    goto Done;
   } else {
-    *DataSize = VarDataSize;
+    *DataSize = VarDataSize + MetaDataSize;
     Status = EFI_BUFFER_TOO_SMALL;
-    goto Done;
   }
 
 Done:
@@ -3151,7 +3380,7 @@ VariableServiceSetVariable (
     } else {
       return EFI_INVALID_PARAMETER;
     }
-  } else if ((Attributes & VARIABLE_ATTRIBUTE_AT_AW) != 0) {
+  } else if ((Attributes & VARIABLE_ATTRIBUTE_AT_EA_AW) != 0) {
     if (!mVariableModuleGlobal->VariableGlobal.AuthSupport) {
       //
       // Not support authenticated variable write.
@@ -3168,12 +3397,14 @@ VariableServiceSetVariable (
   }
 
   //
-  // EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS and EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS attribute
-  // cannot be set both.
+  // EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS,  EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS, EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS
+  // attributes can't be set both.
   //
-  if (((Attributes & EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS) == EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS)
-     && ((Attributes & EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS) == EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS)) {
-    return EFI_UNSUPPORTED;
+  if (((Attributes & VARIABLE_ATTRIBUTE_AT_EA_AW) != 0)
+     && ((Attributes & VARIABLE_ATTRIBUTE_AT_EA_AW) != EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS)
+     && ((Attributes & VARIABLE_ATTRIBUTE_AT_EA_AW) != EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS)
+     && ((Attributes & VARIABLE_ATTRIBUTE_AT_EA_AW) != EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS)) {
+    return EFI_INVALID_PARAMETER;
   }
 
   if ((Attributes & EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS) == EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS) {
@@ -3195,6 +3426,15 @@ VariableServiceSetVariable (
       return EFI_SECURITY_VIOLATION;
     }
     PayloadSize = DataSize - AUTHINFO2_SIZE (Data);
+  } else if ((Attributes & EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS) == EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS) {
+    //
+    // Santity check for EFI_VARIABLE_AUTHENTICATION_3 descriptor.
+    //
+    Status = Auth3SantiyCheck(Data, DataSize);
+    if (EFI_ERROR(Status)) {
+      return Status;
+    }
+    PayloadSize = DataSize - ((EFI_VARIABLE_AUTHENTICATION_3 *)Data)->MetadataSize;
   } else {
     PayloadSize = DataSize;
   }
@@ -3220,7 +3460,7 @@ VariableServiceSetVariable (
     //  The size of the VariableName, including the Unicode Null in bytes plus
     //  the DataSize is limited to maximum size of Max(Auth)VariableSize bytes.
     //
-    if ((Attributes & VARIABLE_ATTRIBUTE_AT_AW) != 0) {
+    if ((Attributes & VARIABLE_ATTRIBUTE_AT_EA_AW) != 0) {
       if (StrSize (VariableName) + PayloadSize > mVariableModuleGlobal->MaxAuthVariableSize - GetVariableHeaderSize ()) {
         return EFI_INVALID_PARAMETER;
       }
@@ -3401,7 +3641,7 @@ VariableServiceQueryVariableInfoInternal (
     //
     // Let *MaximumVariableSize be Max(Auth)VariableSize with the exception of the variable header size.
     //
-    if ((Attributes & VARIABLE_ATTRIBUTE_AT_AW) != 0) {
+    if ((Attributes & VARIABLE_ATTRIBUTE_AT_EA_AW) != 0) {
       *MaximumVariableSize = mVariableModuleGlobal->MaxAuthVariableSize - GetVariableHeaderSize ();
     } else {
       *MaximumVariableSize = mVariableModuleGlobal->MaxVariableSize - GetVariableHeaderSize ();
@@ -3555,7 +3795,7 @@ VariableServiceQueryVariableInfo (
     // Make sure Hw Attribute is set with NV.
     //
     return EFI_INVALID_PARAMETER;
-  } else if ((Attributes & VARIABLE_ATTRIBUTE_AT_AW) != 0) {
+  } else if ((Attributes & VARIABLE_ATTRIBUTE_AT_EA_AW) != 0) {
     if (!mVariableModuleGlobal->VariableGlobal.AuthSupport) {
       //
       // Not support authenticated variable write.

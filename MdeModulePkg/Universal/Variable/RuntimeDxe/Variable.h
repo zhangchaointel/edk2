@@ -2,7 +2,7 @@
   The internal header file includes the common header files, defines
   internal structure and functions used by Variable modules.
 
-Copyright (c) 2006 - 2017, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2006 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
 which accompanies this distribution.  The full text of the license may be found at
@@ -51,7 +51,8 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
                                       EFI_VARIABLE_RUNTIME_ACCESS | \
                                       EFI_VARIABLE_HARDWARE_ERROR_RECORD | \
                                       EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS | \
-                                      EFI_VARIABLE_APPEND_WRITE)
+                                      EFI_VARIABLE_APPEND_WRITE | \
+                                      EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS)
 
 ///
 /// The size of a 3 character ISO639 language code.
@@ -108,6 +109,9 @@ typedef struct {
   CHAR8           Lang[ISO_639_2_ENTRY_SIZE + 1];
   EFI_FIRMWARE_VOLUME_BLOCK_PROTOCOL *FvbInstance;
 } VARIABLE_MODULE_GLOBAL;
+
+#define REMAINING_DATASIZE(TotalDataSize, TravesedDataSize) \
+                               ((TotalDataSize) - (TravesedDataSize))
 
 /**
   Flush the HOB variable to flash.
