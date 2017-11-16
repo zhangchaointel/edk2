@@ -11,7 +11,7 @@
   may not be modified without authorization. If platform fails to protect these resources,
   the authentication service provided in this driver will be broken, and the behavior is undefined.
 
-Copyright (c) 2015 - 2016, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2015 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
 which accompanies this distribution.  The full text of the license may be found at
@@ -95,11 +95,74 @@ VARIABLE_ENTRY_PROPERTY mAuthVarEntry[] = {
       MAX_UINTN
     }
   },
+  {
+    &gEfiCertDbGuid,
+    EFI_ENHANCED_AUTH_CERT_DB_NAME,
+    {
+      VAR_CHECK_VARIABLE_PROPERTY_REVISION,
+      VAR_CHECK_VARIABLE_PROPERTY_READ_ONLY,
+      VARIABLE_ATTRIBUTE_BS_RT_AT,
+      sizeof (UINT32),
+      MAX_UINTN
+    }
+  },
+  {
+    &gEfiCertDbGuid,
+    EFI_ENHANCED_AUTH_CERT_DB_VOLATILE_NAME,
+    {
+      VAR_CHECK_VARIABLE_PROPERTY_REVISION,
+      VAR_CHECK_VARIABLE_PROPERTY_READ_ONLY,
+      VARIABLE_ATTRIBUTE_BS_RT_AT,
+      sizeof (UINT32),
+      MAX_UINTN
+    }
+  },
+
+  
 };
 
 VOID **mAuthVarAddressPointer[9];
 
 AUTH_VAR_LIB_CONTEXT_IN *mAuthVarLibContextIn = NULL;
+
+CERT_DATABASE_INFO mNvCertDataBase[] = {
+  //
+  // "certdb" for time based private auth NV variable
+  //
+  {
+    EFI_CERT_DB_NAME,
+    &gEfiCertDbGuid,
+    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS,
+    EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS 
+  },
+  //
+  // "encertdb" for enhanced private auth NV variable
+  //
+  {
+    EFI_ENHANCED_AUTH_CERT_DB_NAME,
+    &gEfiCertDbGuid,
+    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS,
+    EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS
+  },
+  //
+  // "certdbv" for time based private auth volatile variable
+  //
+  {
+    EFI_CERT_DB_VOLATILE_NAME,
+    &gEfiCertDbGuid,
+    EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS,
+    EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS 
+  },
+  //
+  // "encertdbv"for enhanced private auth volatile variable
+  //
+  {
+    EFI_ENHANCED_AUTH_CERT_DB_VOLATILE_NAME,
+    &gEfiCertDbGuid,
+    EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS,
+    EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS
+  }
+};
 
 /**
   Initialization for authenticated varibale services.
@@ -123,7 +186,6 @@ AuthVariableLibInitialize (
   )
 {
   EFI_STATUS            Status;
-  UINT32                VarAttr;
   UINT8                 *Data;
   UINTN                 DataSize;
   UINTN                 CtxSize;
@@ -131,6 +193,7 @@ AuthVariableLibInitialize (
   UINT8                 SecureBootEnable;
   UINT8                 CustomMode;
   UINT32                ListSize;
+  UINTN                 Index;
 
   if ((AuthVarLibContextIn == NULL) || (AuthVarLibContextOut == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -266,54 +329,49 @@ AuthVariableLibInitialize (
   DEBUG ((EFI_D_INFO, "Variable %s is %x\n", EFI_CUSTOM_MODE_NAME, CustomMode));
 
   //
-  // Check "certdb" variable's existence.
-  // If it doesn't exist, then create a new one with
-  // EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS set.
+  // Intialize variables for NV Cert Databases. If doesn't exist, 
+  // create new one with EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS set.
   //
-  Status = AuthServiceInternalFindVariable (
-             EFI_CERT_DB_NAME,
-             &gEfiCertDbGuid,
-             (VOID **) &Data,
-             &DataSize
-             );
-  if (EFI_ERROR (Status)) {
-    VarAttr  = EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS;
-    ListSize = sizeof (UINT32);
-    Status   = AuthServiceInternalUpdateVariable (
-                 EFI_CERT_DB_NAME,
-                 &gEfiCertDbGuid,
-                 &ListSize,
-                 sizeof (UINT32),
-                 VarAttr
+  for (Index = 0; Index < sizeof(mNvCertDataBase) / sizeof(CERT_DATABASE_INFO); Index++) {
+    if ((mNvCertDataBase[Index].VarAttributes & EFI_VARIABLE_NON_VOLATILE) != 0) {
+      //
+      // Check existence of Cert Database for NV private auth variable 
+      //
+      Status = AuthServiceInternalFindVariable (
+                 mNvCertDataBase[Index].DbName,
+                 mNvCertDataBase[Index].VendorGuid,
+                 (VOID **) &Data,
+                 &DataSize
                  );
-    if (EFI_ERROR (Status)) {
-      return Status;
+    } else {
+      //
+      // Always create Cert Database for volatile private auth variable
+      //
+      Status = EFI_NOT_FOUND;
     }
-  } else {
-    //
-    // Clean up Certs to make certDB & Time based auth variable consistent
-    //
-    Status = CleanCertsFromDb();
-    if (EFI_ERROR (Status)) {
-      DEBUG ((EFI_D_ERROR, "Clean up CertDB fail! Status %x\n", Status));
-      return Status;
-    }
-  }
 
-  //
-  // Create "certdbv" variable with RT+BS+AT set.
-  //
-  VarAttr  = EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS;
-  ListSize = sizeof (UINT32);
-  Status   = AuthServiceInternalUpdateVariable (
-               EFI_CERT_DB_VOLATILE_NAME,
-               &gEfiCertDbGuid,
-               &ListSize,
-               sizeof (UINT32),
-               VarAttr
-               );
-  if (EFI_ERROR (Status)) {
-    return Status;
+    if (EFI_ERROR (Status)) {
+      ListSize = sizeof (UINT32);
+      Status   = AuthServiceInternalUpdateVariable (
+                   mNvCertDataBase[Index].DbName,
+                   mNvCertDataBase[Index].VendorGuid,
+                   &ListSize,
+                   sizeof (UINT32),
+                   mNvCertDataBase[Index].VarAttributes
+                   );
+    } else {
+      //
+      // Clean up Certs to make Cert Database & private auth variable consistent
+      //
+      Status = CleanCertsFromDb(mNvCertDataBase[Index].DbName, mNvCertDataBase[Index].VendorGuid, mNvCertDataBase[Index].AuthAttributes);
+      if (EFI_ERROR (Status)) {
+        DEBUG ((EFI_D_ERROR, "Clean up %s fail! Status %x\n", mNvCertDataBase[Index].DbName, Status));
+      }
+    }
+
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
   }
 
   //
@@ -424,4 +482,63 @@ AuthVariableLibProcessVariable (
   }
 
   return Status;
+}
+
+/**
+  Get auth info for enhanced authenticated variable with EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS.
+
+  @param[in] VariableName           Name of the variable.
+  @param[in] VendorGuid             Variable vendor GUID.
+  @param[in] Data                   Data pointer.
+  @param[in] DataSize               Size of Data.
+  @param[in] Attributes             Attribute value of the variable.
+
+  @retval EFI_SUCCESS               The firmware has successfully stored the variable and its data as
+                                    defined by the Attributes.
+  @retval EFI_INVALID_PARAMETER     Invalid parameter.
+  @retval EFI_WRITE_PROTECTED       Variable is write-protected.
+  @retval EFI_OUT_OF_RESOURCES      There is not enough resource.
+  @retval EFI_SECURITY_VIOLATION    The variable is with EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACESS
+                                    set, but the AuthInfo does NOT pass the validation
+                                    check carried out by the firmware.
+  @retval EFI_UNSUPPORTED           Unsupported to process authenticated variable.
+
+**/
+EFI_STATUS
+EFIAPI
+AuthVariableLibGetEnhancedAuthVarInfo (
+  IN  CHAR16                                *VariableName,
+  IN  EFI_GUID                              *VendorGuid,
+  IN  UINT32                                Attributes,
+  OUT EFI_VARIABLE_AUTHENTICATION_3_CERT_ID *CertIdHeader,
+  OUT UINT8                                 **CertData,
+  OUT EFI_VARIABLE_AUTHENTICATION_3_NONCE   *NonceHeader, OPTIONAL
+  OUT UINT8                                 **Nonce,  OPTIONAL
+  OUT UINT8                                 *Type
+  )
+{ 
+  EFI_STATUS    Status;
+
+  if (CertIdHeader == NULL || CertData == NULL || Type == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  ZeroMem(CertIdHeader, sizeof(CertIdHeader));
+
+  Status = GetCertsFromDb (VariableName, VendorGuid, Attributes, CertData, &CertIdHeader->IdSize, Nonce, &NonceHeader->NonceSize, Type);
+
+  if (EFI_ERROR(Status)) {
+    return Status;
+  }
+
+  //
+  // UEFI2.7 only defined SHA256 hashed CertID
+  //
+  if (CertIdHeader->IdSize == SHA256_DIGEST_SIZE){
+    CertIdHeader->Type = EFI_VARIABLE_AUTHENTICATION_3_CERT_ID_SHA256;
+  } else {
+    CertIdHeader->Type = 0;  
+  }
+
+  return EFI_SUCCESS;
 }

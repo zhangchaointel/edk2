@@ -33,6 +33,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <Library/MemoryAllocationLib.h>
 #include <Library/BaseCryptLib.h>
 #include <Library/PlatformSecureLib.h>
+#include <Library/RngLib.h>
 
 #include <Guid/AuthenticatedVariableFormat.h>
 #include <Guid/ImageAuthentication.h>
@@ -50,6 +51,19 @@ typedef struct {
   // Expected SignatureData size in Bytes.
   UINT32      SigDataSize;
 } EFI_SIGNATURE_ITEM;
+
+typedef struct {
+  // Name of the variable used to save the Cert Database
+  CHAR16     *DbName;
+  // Vendor GUID of the variable used to save the Cert Database
+  EFI_GUID   *VendorGuid;
+  // Attributes of the variable used to save the Cert Database
+  UINT32     VarAttributes;
+  // Auth Attributes of the private auth variable whose cert is saved in the Cert Database
+  // EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS or EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS
+  UINT32     AuthAttributes;
+} CERT_DATABASE_INFO;
+
 
 typedef enum {
   AuthVarTypePk,
@@ -91,7 +105,47 @@ typedef struct {
   /// CHAR16  VariableName[NameSize];
   /// UINT8   CertData[CertDataSize];
 } AUTH_CERT_DB_DATA;
+
+///
+///  "encertdb" variable stores the signer's certificates for variable with 
+/// EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS|EFI_VARIABLE_NON_VOLATILE set.
+///  "encertdbv" variable stores the signer's certificates for variables with
+/// EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS set
+///
+///
+///  EFI_VARIABLE_AUTHENTICATION_3_TIMESTAMP_TYPE or EFI_VARIABLE_AUTHENTICATION_3_NONCE_TYPE
+///
+/// GUID: gEfiCertDbGuid
+///
+/// We need maintain atomicity.
+///
+/// Format:
+/// +--------------------------------+
+/// | UINT32                     | <-- CertDbListSize, including this UINT32
+/// +--------------------------------+
+/// | ENHANCED_AUTH_CERT_DB_DATA     | <-- First CERT
+/// +--------------------------------+
+/// | ........                       |
+/// +--------------------------------+
+/// | ENHANCED_AUTH_CERT_DB_DATA     | <-- Last CERT
+/// +--------------------------------+
+///
+#define EFI_ENHANCED_AUTH_CERT_DB_NAME              L"encertdb"
+#define EFI_ENHANCED_AUTH_CERT_DB_VOLATILE_NAME     L"encertdbv"
+
+typedef struct {
+  AUTH_CERT_DB_DATA  CertData;
+  /// UINT8   Type;                                  
+  /// EFI_VARIABLE_AUTHENTICATION_3_NONCE   Nonce;
+} ENHANCED_AUTH_CERT_DB_DATA;
 #pragma pack()
+
+///
+/// Caculate size of whole AUTH_CERT_DB_DATA structure
+///
+#define SIZE_OF_AUTH_CERT_DB_DATA(NameSize, CertDataSize) \
+  (sizeof (AUTH_CERT_DB_DATA) + (NameSize) * sizeof (CHAR16) + (CertDataSize))
+
 
 extern UINT8    *mCertDbStore;
 extern UINT32   mMaxCertDbSize;
@@ -141,6 +195,42 @@ VerifyTimeBasedPayloadAndUpdate (
   );
 
 /**
+  Process variable with EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS set
+
+  Caution: This function may receive untrusted input.
+  This function may be invoked in SMM mode, and datasize and data are external input.
+  This function will do basic validation, before parse the data.
+  This function will parse the authentication carefully to avoid security issues, like
+  buffer overflow, integer overflow.
+
+  @param[in]  VariableName                Name of Variable to be found.
+  @param[in]  VendorGuid                  Variable vendor GUID.
+  @param[in]  Data                        Data pointer.
+  @param[in]  DataSize                    Size of Data found. If size is less than the
+                                          data, this value contains the required size.
+  @param[in]  Attributes                  Attribute value of the variable.
+  @param[in]  AuthVarType                 Verify against PK, KEK database, private database or certificate in data payload.
+  @param[out] VarDel                      Delete the variable or not.
+
+  @retval EFI_INVALID_PARAMETER           Invalid parameter.
+  @retval EFI_SECURITY_VIOLATION          The variable does NOT pass the validation
+                                          check carried out by the firmware.
+  @retval EFI_OUT_OF_RESOURCES            Failed to process variable due to lack
+                                          of resources.
+  @retval EFI_SUCCESS                     Variable pass validation successfully.
+
+**/
+EFI_STATUS
+VerifyEnhancedAuthPayloadAndUpdate (
+  IN     CHAR16                             *VariableName,
+  IN     EFI_GUID                           *VendorGuid,
+  IN     VOID                               *Data,
+  IN     UINTN                              DataSize,
+  IN     UINT32                             Attributes
+  );
+
+
+/**
   Delete matching signer's certificates when deleting common authenticated
   variable by corresponding VariableName and VendorGuid from "certdb" or 
   "certdbv" according to authenticated variable attributes.
@@ -175,7 +265,9 @@ DeleteCertsFromDb (
 **/
 EFI_STATUS
 CleanCertsFromDb (
-  VOID
+  IN  CHAR16         *DatabaseName,
+  IN  EFI_GUID       *DatabaseVendorGuid,
+  IN  UINT32         AuthAttributes
   );
 
 /**
@@ -370,6 +462,19 @@ AuthServiceInternalUpdateVariableWithTimeStamp (
   IN UINTN          DataSize,
   IN UINT32         Attributes,
   IN EFI_TIME       *TimeStamp
+  );
+
+
+EFI_STATUS
+GetCertsFromDb (
+  IN     CHAR16           *VariableName,
+  IN     EFI_GUID         *VendorGuid,
+  IN     UINT32           Attributes,
+  OUT    UINT8            **CertData,
+  OUT    UINT32           *CertDataSize,
+  OUT    UINT8            **NonceData,    OPTIONAL
+  OUT    UINT32           *NonceDataSize, OPTIONAL
+  OUT    UINT8            *Type
   );
 
 #endif
