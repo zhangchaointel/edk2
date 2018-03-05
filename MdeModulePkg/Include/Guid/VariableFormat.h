@@ -2,7 +2,7 @@
   The variable data structures are related to EDK II-specific implementation of UEFI variables.
   VariableFormat.h defines variable data headers and variable storage region headers.
 
-Copyright (c) 2006 - 2017, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2006 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials are licensed and made available under
 the terms and conditions of the BSD License that accompanies this distribution.
 The full text of the license may be found at
@@ -121,6 +121,7 @@ typedef struct {
 #define VARIABLE_ATTRIBUTE_NV_BS_RT_AT  (VARIABLE_ATTRIBUTE_NV_BS_RT | EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS)
 #define VARIABLE_ATTRIBUTE_AT           EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS
 #define VARIABLE_ATTRIBUTE_NV_BS_RT_HR_AT    (VARIABLE_ATTRIBUTE_NV_BS_RT_HR | VARIABLE_ATTRIBUTE_AT)
+#define VARIABLE_ATTRIBUTE_AT_EA_AW     (EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS | EFI_VARIABLE_ENHANCED_AUTHENTICATED_ACCESS | EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS)
 ///
 /// EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS is deprecated and should be considered as reserved
 ///

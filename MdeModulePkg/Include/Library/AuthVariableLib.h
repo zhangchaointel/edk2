@@ -1,7 +1,7 @@
 /** @file
   Provides services to initialize and process authenticated variables.
 
-Copyright (c) 2015 - 2017, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2015 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials are licensed and made available under
 the terms and conditions of the BSD License that accompanies this distribution.
 The full text of the license may be found at
@@ -255,6 +255,20 @@ AuthVariableLibProcessVariable (
   IN VOID           *Data,
   IN UINTN          DataSize,
   IN UINT32         Attributes
+  );
+
+
+EFI_STATUS
+EFIAPI
+AuthVariableLibGetEnhancedAuthVarInfo (
+  IN  CHAR16                                *VariableName,
+  IN  EFI_GUID                              *VendorGuid,
+  IN  UINT32                                Attributes,
+  OUT EFI_VARIABLE_AUTHENTICATION_3_CERT_ID *CertIdHeader,
+  OUT UINT8                                 **CertData,
+  OUT EFI_VARIABLE_AUTHENTICATION_3_NONCE   *NonceHeader,  OPTIONAL
+  OUT UINT8                                 **Nonce,  OPTIONAL
+  OUT UINT8                                 *Type
   );
 
 #endif
