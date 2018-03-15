@@ -1,0 +1,36 @@
+## @file
+#  Null instance of RNG (Random Number Generator) Library with empty implementation.
+#
+#  Copyright (c) 2018, Intel Corporation. All rights reserved.<BR>
+#
+#  This program and the accompanying materials
+#  are licensed and made available under the terms and conditions of the BSD License
+#  which accompanies this distribution. The full text of the license may be found at
+#  http://opensource.org/licenses/bsd-license.php.
+#  THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
+#
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = BaseRngLibNull
+  MODULE_UNI_FILE                = BaseRngLibNull.uni
+  FILE_GUID                      = 68577A42-3E06-46CD-B5AF-F5D23EC58C47
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = RngLib
+
+#
+#  VALID_ARCHITECTURES           = IA32 X64
+#
+
+[Sources.Ia32, Sources.X64]
+  BaseRng.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  DebugLib
