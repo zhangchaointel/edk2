@@ -1002,7 +1002,7 @@ Pkcs7GetAttachedContent (
     OctStr = Pkcs7->d.sign->contents->d.data;
     if ((OctStr->length > 0) && (OctStr->data != NULL)) {
       *ContentSize = OctStr->length;
-      *Content     = AllocatePool (*ContentSize);
+      *Content     = malloc (*ContentSize);
       if (*Content == NULL) {
         *ContentSize = 0;
         goto _Exit;
