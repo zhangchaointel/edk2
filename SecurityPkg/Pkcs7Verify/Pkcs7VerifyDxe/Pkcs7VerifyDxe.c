@@ -5,7 +5,7 @@
   verify data signed using PKCS7 structure. The PKCS7 data to be verified must
   be ASN.1 (DER) encoded.
 
-Copyright (c) 2015 - 2017, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2015 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
 which accompanies this distribution.  The full text of the license may be found at
@@ -1309,7 +1309,7 @@ VerifyBuffer (
 
 _Exit:
   if (AttachedData != NULL) {
-    FreePool (AttachedData);
+    Pkcs7FreeSigners (AttachedData);
   }
 
   return Status;
