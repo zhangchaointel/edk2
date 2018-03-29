@@ -46,7 +46,7 @@ Reset OsIndication File Capsule Delivery Supported Flag
 and clear the boot next variable.
 */
 EFI_STATUS
-CoDClearCapsuleFlags(
+CoDLibClearCapsuleOnDiskFlag(
     VOID
   )
 {
@@ -54,7 +54,9 @@ CoDClearCapsuleFlags(
   UINT64                OsIndication;
   UINTN                 DataSize;
 
+  //
   // Reset OsIndication File Capsule Delivery Supported Flag
+  //
   OsIndication = 0;
   DataSize = sizeof(UINT64);
   Status = gRT->GetVariable (
@@ -64,9 +66,11 @@ CoDClearCapsuleFlags(
                   &DataSize,
                   &OsIndication
                   );
-  if (EFI_ERROR(Status)) {
-    OsIndication = 0;
+  if (EFI_ERROR(Status) || 
+      (OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) == 0) {
+    return Status;
   }
+
   OsIndication &= ~((UINT64)EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED);
   Status = gRT->SetVariable (
                   L"OsIndications",
@@ -74,17 +78,11 @@ CoDClearCapsuleFlags(
                   EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
                   sizeof(UINT64),
                   &OsIndication
-                );
+                  );
 
-  // Clear the boot next variable
-  Status = gRT->SetVariable (
-        L"BootNext",
-        &gEfiGlobalVariableGuid,
-        EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
-        0,
-        NULL
-        );
-
+  //
+  //boot next is cleared by BDS. CoDLib doesn' t clear this variable
+  //
   return EFI_SUCCESS;
 }
 
