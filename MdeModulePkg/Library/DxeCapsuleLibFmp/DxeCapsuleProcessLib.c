@@ -34,7 +34,7 @@
 #include <Library/HobLib.h>
 #include <Library/ReportStatusCodeLib.h>
 #include <Library/CapsuleLib.h>
-
+#include <Library/CodLib.h>
 #include <IndustryStandard/WindowsUxCapsule.h>
 
 /**
@@ -127,6 +127,15 @@ InitCapsulePtr (
 
   DEBUG ((DEBUG_INFO, "mCapsuleTotalNumber - 0x%x\n", mCapsuleTotalNumber));
 
+  //
+  // Find all capsule images from disk
+  //
+  if (PcdGetBool(PcdCapsuleOnDiskSupport) && CodLibCheckCapsuleOnDiskFlag()) {
+    CodLibGetAllCapsuleOnDisk();
+
+    CoDLibClearCapsuleOnDiskFlag();
+  }
+  
   if (mCapsuleTotalNumber == 0) {
     return ;
   }
