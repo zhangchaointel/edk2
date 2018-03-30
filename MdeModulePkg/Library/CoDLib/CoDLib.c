@@ -764,7 +764,7 @@ EXIT:
 
 **/
 EFI_STATUS
-GetFileInAlphabetFromDir(
+GetFileImageInAlphabetFromDir(
   IN EFI_FILE_HANDLE   Dir,
   IN UINT64            FileAttr,
   OUT IMAGE_INFO       **FilePtr,
@@ -973,6 +973,34 @@ EXIT:
   return Status;
 }
 
+BOOLEAN
+CodLibCheckCapsuleOnDiskFlag(
+  VOID
+  )
+{
+  EFI_STATUS            Status;
+  UINT64                OsIndication;
+  UINTN                 DataSize;
+
+  //
+  // Reset OsIndication File Capsule Delivery Supported Flag
+  //
+  OsIndication = 0;
+  DataSize     = sizeof(UINT64);
+  Status = gRT->GetVariable (
+                  L"OsIndications",
+                  &gEfiGlobalVariableGuid,
+                  NULL,
+                  &DataSize,
+                  &OsIndication
+                  );
+  if (!EFI_ERROR(Status) && 
+      (OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) != 0) {
+    return TRUE;
+  }
+
+  return FALSE;
+}
 
 /**
 
@@ -986,7 +1014,7 @@ EXIT:
 
 **/
 EFI_STATUS  
-CodLibGetCapsuleFromFile(
+CodLibGetAllCapsuleOnDisk(
   OUT IMAGE_INFO    **CapsulePtr,
   OUT UINTN         *CapsuleNum
   )
@@ -1025,7 +1053,7 @@ CodLibGetCapsuleFromFile(
   // Only Load files with EFI_FILE_SYSTEM or EFI_FILE_ARCHIVE attribute
   // ignore EFI_FILE_READ_ONLY, EFI_FILE_HIDDEN, EFI_FILE_RESERVED, EFI_FILE_DIRECTORY
   //
-  Status = GetFileInAlphabetFromDir(
+  Status = GetFileImageInAlphabetFromDir(
              FileDir,
              EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE,
              CapsulePtr,
@@ -1054,7 +1082,7 @@ and clear the boot next variable.
 */
 EFI_STATUS
 CoDLibClearCapsuleOnDiskFlag(
-    VOID
+  VOID
   )
 {
   EFI_STATUS            Status;
@@ -1103,46 +1131,3 @@ CoDLibClearCapsuleOnDiskFlag(
   return EFI_SUCCESS;
 }
 
-
-/*
-  Verify the current pointer points to a valid Capsule FV file.
-
-  @param[in] FileBuffer          Pointer to Capsule file.
-  @param[in] FileSize            Capsule file size.
-
-  @retvalEFI_SUCCESS             The Capsule header is valid.
-  @retvalEFI_VOLUME_CORRUPTED    The Capsule header is not valid.
-  @retvalEFI_INVALID_PARAMETER   A required parameter was NULL.
-  @retvalEFI_ABORTED             Operation aborted.
-*/
-EFI_STATUS
-VerifyCapsuleFv (
-  IN VOID                      *FileBuffer,
-  IN UINTN                      FileSize
-  )
-{
-  EFI_CAPSULE_HEADER           *CapsuleHeader = NULL;
-  DEBUG((EFI_D_ERROR, "Enter VerifyCapsuleFv\n"));
-
-  if (FileBuffer == NULL) {
-    DEBUG((EFI_D_ERROR, "FileBuffer is null\n"));
-    return EFI_INVALID_PARAMETER;
-    }
-
-  DEBUG((EFI_D_ERROR, "FileBuffer ok\n"));
-  CapsuleHeader = (EFI_CAPSULE_HEADER *)(UINT8 *)((UINTN)FileBuffer);
-
-  if (CapsuleHeader->CapsuleImageSize != FileSize){
-    DEBUG((EFI_D_ERROR, "Invalid Capsule file, improper size detected.\n"));
-    return EFI_VOLUME_CORRUPTED;
-  }
-
-  DEBUG((EFI_D_ERROR, "CapsuleHeader->Flags %x \n",CapsuleHeader->Flags));
-  if ( CapsuleHeader->Flags == (CAPSULE_FLAGS_INITIATE_RESET | CAPSULE_FLAGS_PERSIST_ACROSS_RESET)){
-    DEBUG((EFI_D_ERROR, "Header workaround\n"));
-    CapsuleHeader->Flags = CapsuleHeader->Flags ^ (CAPSULE_FLAGS_INITIATE_RESET | CAPSULE_FLAGS_PERSIST_ACROSS_RESET);
-  }
-  DEBUG((EFI_D_ERROR, "Header checks ok\n"));
-
-  return EFI_SUCCESS;
-}
