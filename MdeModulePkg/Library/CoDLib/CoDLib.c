@@ -25,8 +25,8 @@
 #include <Protocol/SimpleFileSystem.h>
 #include <Guid/FileSystemInfo.h>
 #include <Library/CapsuleLib.h>
-#include <Library/CoDLib.h>
 #include <Library/DevicePathLib.h>
+#include "IntenalCoDLib.h"
 
 /**
 
@@ -303,6 +303,7 @@ FileHandleFindNextFile(
   return EFI_SUCCESS;
 }
 
+
 /**
 
   This routine is called to get all boot options determnined by  
@@ -518,6 +519,236 @@ GetEfiSysPartitionFromActiveBootOption(
   return Status;
 }
 
+
+/**
+
+  This routine is called to get all file infos with in a given dir & with given file attribute, the file info is listed in
+  alphabetical order described in UEFI spec. 
+
+  @param[in]  Dir                 Directory file handler
+  @param[in]  FileAttr            Attribute of file to be red from directory
+  @param[out] FileInfoList        File images info list red from directory
+  @param[out] FileNum             File images number red from directory
+
+  @retval EFI_SUCCESS             file FileInfo list in the given  
+
+**/
+EFI_STATUS
+GetFileInfoListInAlphabetFromDir(
+  IN EFI_FILE_HANDLE  Dir,
+  IN UINT64           FileAttr,
+  OUT LIST_ENTRY      *FileInfoList,
+  OUT UINTN           *FileNum
+  )
+{
+  EFI_STATUS        Status;
+  FILE_INFO_ENTRY   *NewFileInfoEntry;
+  FILE_INFO_ENTRY   *TempFileInfoEntry;
+  EFI_FILE_INFO     *FileInfo;
+  CHAR16            *NewFileName;
+  CHAR16            *ListedFileName;
+  CHAR16            *NewFileNameExtension;
+  CHAR16            *ListedFileNameExtension;
+  CHAR16            *TempNewSubStr;
+  CHAR16            *TempListedSubStr;
+  LIST_ENTRY        *Link;
+  BOOLEAN           NoFile;
+  UINTN             FileCount;
+  UINTN             IndexNew;
+  UINTN             IndexListed;
+  UINTN             NewSubStrLen;
+  UINTN             ListedSubStrLen;
+  INTN              SubStrCmpResult;
+
+  NewFileName             = NULL;
+  ListedFileName          = NULL;
+  NewFileNameExtension    = NULL;
+  ListedFileNameExtension = NULL;
+  TempNewSubStr           = NULL;
+  TempListedSubStr        = NULL;
+  NoFile                  = FALSE;
+  FileCount               = 0;
+
+  InitializeListHead(FileInfoList);
+
+  TempNewSubStr           = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
+  TempListedSubStr        = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
+
+  if (NewFileName == NULL || NewFileNameExtension == NULL || TempNewSubStr == NULL || TempListedSubStr == NULL ) {
+    Status = EFI_OUT_OF_RESOURCES;
+    goto EXIT;
+  }
+
+  for ( Status = FileHandleFindFirstFile(Dir, &FileInfo)
+      ; !EFI_ERROR(Status) && !NoFile
+      ; Status = FileHandleFindNextFile(Dir, &FileInfo, &NoFile)
+     ){
+
+    //
+    // Skip file with mismatching File attribute
+    //
+    if ((FileInfo->Attribute & (FileAttr)) == 0) {
+      continue;
+    }
+
+    NewFileInfoEntry = NULL;
+    NewFileInfoEntry = (FILE_INFO_ENTRY*)AllocateZeroPool(sizeof(FILE_INFO_ENTRY));
+    if (NewFileInfoEntry == NULL) {
+      Status = EFI_OUT_OF_RESOURCES;
+      goto EXIT;
+    }
+    NewFileInfoEntry->Signature = FILE_INFO_SIGNATURE;
+    NewFileInfoEntry->FileInfo  = FileInfo;
+
+    NewFileInfoEntry->FnFirstPart  = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
+    if (NewFileInfoEntry->FnFirstPart == NULL) {
+      FreePool(NewFileInfoEntry);
+      Status = EFI_OUT_OF_RESOURCES;
+      goto EXIT;
+    }
+    NewFileInfoEntry->FnSecondPart = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
+    if (NewFileInfoEntry->FnSecondPart == NULL) {
+      FreePool(NewFileInfoEntry);
+      FreePool(NewFileInfoEntry->FnFirstPart);
+      Status = EFI_OUT_OF_RESOURCES;
+      goto EXIT;
+    }
+
+    //
+    // Splitter the whole New file name into 2 parts between the last period L'.' into NewFileName NewFileExtension 
+    // If no period in the whole file name. NewFileExtension is set to L'\0' 
+    //
+    NewFileName          = NewFileInfoEntry->FnFirstPart;
+    NewFileNameExtension = NewFileInfoEntry->FnSecondPart;
+    SplitFileNameExtension(FileInfo->FileName, NewFileName, NewFileNameExtension);
+    UpperCaseString(NewFileName);
+    UpperCaseString(NewFileNameExtension);
+
+    //
+    // Insert capsule file in alphabetical ordered list
+    //
+    for (Link = FileInfoList->ForwardLink; Link != FileInfoList; Link = Link->ForwardLink) {
+      //
+      // Get the FileInfo from the link list
+      //
+      TempFileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
+      ListedFileName          = TempFileInfoEntry->FnFirstPart;
+      ListedFileNameExtension = TempFileInfoEntry->FnSecondPart;
+
+      //
+      // Follow rule in UEFI spec 8.5.5 to compare file name 
+      //
+      IndexListed = 0;
+      IndexNew    = 0;
+      while (TRUE){
+        //
+        // First compare each substrings in NewFileName & ListedFileName between periods
+        //
+        GetSubStringBeforePeriod(&NewFileName[IndexNew], TempNewSubStr, &NewSubStrLen);
+        GetSubStringBeforePeriod(&ListedFileName[IndexListed], TempListedSubStr, &ListedSubStrLen);
+        if (NewSubStrLen > ListedSubStrLen) {
+          //
+          // Substr in NewFileName is longer.  Pad tail with SPACE
+          //
+          PadStrInTail(TempListedSubStr, NewSubStrLen - ListedSubStrLen, L' ');
+        } else if (NewSubStrLen < ListedSubStrLen){
+          //
+          // Substr in ListedFileName is longer. Pad tail with SPACE
+          //
+          PadStrInTail(TempNewSubStr, ListedSubStrLen - NewSubStrLen, L' ');
+        }
+
+        SubStrCmpResult = StrnCmp(TempNewSubStr, TempListedSubStr, MAX_FILE_NAME_LEN);
+        if (SubStrCmpResult != 0) {
+          break;
+        }
+
+        //
+        // Move to skip this substring
+        //
+        IndexNew    += NewSubStrLen;
+        IndexListed += ListedSubStrLen;
+        //
+        // Reach File First Name end
+        //
+        if (NewFileName[IndexNew] == L'\0' || ListedFileName[IndexListed] == L'\0') {
+          break;
+        }
+
+        //
+        // Skip the period L'.'
+        //
+        IndexNew++;
+        IndexListed++;
+
+      }
+
+      if (SubStrCmpResult < 0) {
+        //
+        // NewFileName is smaller. Find the right place to insert New file
+        // 
+        break;
+      } else if (SubStrCmpResult == 0) {
+        // 
+        // 2 cases whole NewFileName is smaller than ListedFileName
+        //   1. if NewFileName == ListedFileName. Continue to compare FileNameExtension
+        //   2. if NewFileName is shorter than ListedFileName
+        //
+        if (NewFileName[IndexNew] == L'\0') {
+          if (ListedFileName[IndexListed] != L'\0' || (StrnCmp(NewFileNameExtension, ListedFileNameExtension, MAX_FILE_NAME_LEN) < 0)) {
+            break;
+          } 
+        }
+      }
+
+      //
+      // Other case, ListedFileName is smaller. Continue to compare the next file in the list
+      //
+    }
+
+    //
+    // If Find an entry in the list whose name is bigger than new FileInfo in alphabet order
+    //    Insert it before this entry
+    // else 
+    //    Insert at the tail of this list (Link = FileInfoList)
+    //
+    InsertTailList(Link, &NewFileInfoEntry->Link);
+
+    FileCount++;
+  }
+
+  *FileNum = FileCount;
+
+EXIT:
+  
+  if (TempNewSubStr != NULL) {
+    FreePool(TempNewSubStr);
+  }
+
+  if (TempListedSubStr != NULL) {
+    FreePool(TempListedSubStr);
+  }
+
+
+  if (EFI_ERROR(Status)) {
+    while(!IsListEmpty(FileInfoList)) {
+      Link = FileInfoList->ForwardLink; 
+      RemoveEntryList(Link);
+
+      TempFileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
+      
+      FreePool(TempFileInfoEntry->FileInfo);
+      FreePool(TempFileInfoEntry->FnFirstPart);
+      FreePool(TempFileInfoEntry->FnSecondPart);
+      FreePool(TempFileInfoEntry);
+    }
+  }
+
+  return Status;
+
+}
+
+
 /**
 
   This routine is called to get all qualified image from file from an given directory 
@@ -655,92 +886,6 @@ EXIT:
   return Status;
 }
 
-/**
-
-  This routine is called to remove all qualified image from file from an given directory. 
-
-  @param[in] Dir                  Directory file handler 
-  @param[in] FileAttr             Attribute of files to be deleted
-
-  @retval EFI_SUCCESS
-
-**/
-EFI_STATUS
-RemoveFileFromDir(
-  IN EFI_FILE_HANDLE   Dir,
-  IN UINT64            FileAttr
-  )
-{
-  EFI_STATUS        Status;
-  LIST_ENTRY        *Link;
-  LIST_ENTRY        FileInfoList;
-  EFI_FILE_HANDLE   FileHandle;
-  FILE_INFO_ENTRY   *FileInfoEntry;
-  EFI_FILE_INFO     *FileInfo;
-  UINTN             FileCount;
-
-  FileHandle = NULL;
-
-  //
-  // Get file list in Dir in alphabetical order
-  //
-  Status = GetFileInfoListInAlphabetFromDir(
-             Dir,
-             FileAttr,
-             &FileInfoList, 
-             &FileCount
-             );
-  if (EFI_ERROR(Status)) {
-    DEBUG ((EFI_D_ERROR, "GetFileInfoListInAlphabetFromDir Failed!\n"));
-    FileCount = 0;
-    goto EXIT;
-  }
-
-  if (FileCount == 0) {
-    DEBUG ((EFI_D_ERROR, "No file found in Dir!\n"));
-    Status = EFI_NOT_FOUND;
-    goto EXIT;
-  }
-
-  //
-  // Delete all file with given attribute in Dir 
-  //
-  for (Link = FileInfoList.ForwardLink; Link != &(FileInfoList); Link = Link->ForwardLink) {
-    //
-    // Get FileInfo from the link list
-    //
-    FileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
-    FileInfo      = FileInfoEntry->FileInfo;
-
-    Status = Dir->Open(
-                    Dir,
-                    &FileHandle,
-                    FileInfo->FileName,
-                    EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE,
-                    0
-                    );
-    if (EFI_ERROR(Status)){
-      continue;
-    }
-
-    Status = FileHandle->Delete(FileHandle);
-  }
-
-EXIT:
-
-  while(!IsListEmpty(&FileInfoList)) {
-    Link = FileInfoList.ForwardLink;
-    RemoveEntryList(Link);
-
-    FileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
-    
-    FreePool(FileInfoEntry->FileInfo);
-    FreePool(FileInfoEntry);
-  }
-
-  return Status;
-}
-
 
 /**
 
@@ -827,6 +972,7 @@ EXIT:
 
   return Status;
 }
+
 
 /**
 
@@ -840,7 +986,7 @@ EXIT:
 
 **/
 EFI_STATUS  
-CodGetCapsuleFromFile(
+CodLibGetCapsuleFromFile(
   OUT IMAGE_INFO    **CapsulePtr,
   OUT UINTN         *CapsuleNum
   )
@@ -875,9 +1021,13 @@ CodGetCapsuleFromFile(
     goto EXIT;
   }
 
+  //
+  // Only Load files with EFI_FILE_SYSTEM or EFI_FILE_ARCHIVE attribute
+  // ignore EFI_FILE_READ_ONLY, EFI_FILE_HIDDEN, EFI_FILE_RESERVED, EFI_FILE_DIRECTORY
+  //
   Status = GetFileInAlphabetFromDir(
              FileDir,
-             EFI_FILE_READ_ONLY | EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE,
+             EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE,
              CapsulePtr,
              CapsuleNum
              );
@@ -896,6 +1046,7 @@ EXIT:
 
   return Status;
 }
+
 
 /*
 Reset OsIndication File Capsule Delivery Supported Flag
