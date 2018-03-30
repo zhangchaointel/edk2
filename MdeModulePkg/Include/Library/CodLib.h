@@ -16,6 +16,18 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #ifndef __COD_LIB_H__
 #define __COD_LIB_H__
 
+typedef struct {
+  //
+  // image address.
+  //
+  VOID             *ImageAddress;
+  //
+  // The file info of the image comes from.
+  //  if FileInfo == NULL. means image does not come from file
+  //
+  EFI_FILE_INFO    *FileInfo;
+} IMAGE_INFO;
+
 BOOLEAN
 CodLibCheckCapsuleOnDiskFlag(
   VOID

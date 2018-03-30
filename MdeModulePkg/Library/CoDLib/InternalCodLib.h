@@ -28,20 +28,6 @@ typedef struct {
   CHAR16          *FnSecondPart;         ///  Text to the right of right-most period in the file name.String is capitialized. Maybe NULL
 } FILE_INFO_ENTRY;
 
-
-typedef struct {
-  //
-  // image address.
-  //
-  VOID             *ImageAddress;
-  //
-  // The file info of the image comes from.
-  //  if FileInfo == NULL. means image does not come from file
-  //
-  EFI_FILE_INFO    *FileInfo;
-} IMAGE_INFO;
-
-
 //
 // (20 * (6+5+2))+1) unicode characters from EFI FAT spec (doubled for bytes)
 //
