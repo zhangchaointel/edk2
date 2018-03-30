@@ -875,7 +875,37 @@ EFIAPI
 BdsExpandPartitionPartialDevicePathToFull (
   IN  HARDDRIVE_DEVICE_PATH      *HardDriveDevicePath
   );
-  
+
+/**
+  Expand USB Class or USB WWID device path node to be full device path of a USB
+  device in platform then load the boot file on this full device path and return the 
+  image handle.
+
+  This function support following 4 cases:
+  1) Boot Option device path starts with a USB Class or USB WWID device path,
+     and there is no Media FilePath device path in the end.
+     In this case, it will follow Removable Media Boot Behavior.
+  2) Boot Option device path starts with a USB Class or USB WWID device path,
+     and ended with Media FilePath device path.
+  3) Boot Option device path starts with a full device path to a USB Host Controller,
+     contains a USB Class or USB WWID device path node, while not ended with Media
+     FilePath device path. In this case, it will follow Removable Media Boot Behavior.
+  4) Boot Option device path starts with a full device path to a USB Host Controller,
+     contains a USB Class or USB WWID device path node, and ended with Media
+     FilePath device path.
+
+  @param  DevicePath    The Boot Option device path.
+
+  @return  The image handle of boot file, or NULL if there is no boot file found in
+           the specified USB Class or USB WWID device path.
+
+**/
+EFI_HANDLE *
+BdsExpandUsbShortFormDevicePath (
+  IN  EFI_DEVICE_PATH_PROTOCOL      *DevicePath,
+  OUT EFI_DEVICE_PATH_PROTOCOL      **FullDevicePath OPTIONAL
+  );
+
 /**
   Return the bootable media handle.
   First, check whether the device is connected.

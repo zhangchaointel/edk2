@@ -1990,8 +1990,9 @@ BdsMatchUsbWwid (
 **/
 EFI_HANDLE *
 BdsFindUsbDevice (
-  IN EFI_DEVICE_PATH_PROTOCOL   *ParentDevicePath,
-  IN EFI_DEVICE_PATH_PROTOCOL   *ShortFormDevicePath
+  IN  EFI_DEVICE_PATH_PROTOCOL   *ParentDevicePath,
+  IN  EFI_DEVICE_PATH_PROTOCOL   *ShortFormDevicePath,
+  OUT EFI_DEVICE_PATH_PROTOCOL   **FullDevicePath OPTIONAL
   )
 {
   EFI_STATUS                Status;
@@ -2004,11 +2005,11 @@ BdsFindUsbDevice (
   UINTN                     Size;
   EFI_HANDLE                ImageHandle;
   EFI_HANDLE                Handle;
-  EFI_DEVICE_PATH_PROTOCOL  *FullDevicePath;
+  EFI_DEVICE_PATH_PROTOCOL  *FullDevicePathTemp;
   EFI_DEVICE_PATH_PROTOCOL  *NextDevicePath;
 
-  FullDevicePath = NULL;
-  ImageHandle    = NULL;
+  FullDevicePathTemp = NULL;
+  ImageHandle        = NULL;
 
   //
   // Get all UsbIo Handles.
@@ -2063,12 +2064,12 @@ BdsFindUsbDevice (
       //
       NextDevicePath = NextDevicePathNode (ShortFormDevicePath);
       if (!IsDevicePathEnd (NextDevicePath)) {
-        FullDevicePath = AppendDevicePath (UsbIoDevicePath, NextDevicePath);
+        FullDevicePathTemp = AppendDevicePath (UsbIoDevicePath, NextDevicePath);
         //
         // Connect the full device path, so that Simple File System protocol
         // could be installed for this USB device.
         //
-        BdsLibConnectDevicePath (FullDevicePath);
+        BdsLibConnectDevicePath (FullDevicePathTemp);
         REPORT_STATUS_CODE (EFI_PROGRESS_CODE, PcdGet32 (PcdProgressCodeOsLoaderLoad));
         Status = gBS->LoadImage (
                        TRUE,
@@ -2078,9 +2079,11 @@ BdsFindUsbDevice (
                        0,
                        &ImageHandle
                        );
-        FreePool (FullDevicePath);
+        if (FullDevicePath == NULL) {
+          FreePool (FullDevicePathTemp);
+        }
       } else {
-        FullDevicePath = UsbIoDevicePath;
+        FullDevicePathTemp = UsbIoDevicePath;
         Status = EFI_NOT_FOUND;
       }
 
@@ -2101,13 +2104,13 @@ BdsFindUsbDevice (
         // Load the default boot file \EFI\BOOT\boot{machinename}.EFI from removable Media
         //  machinename is ia32, ia64, x64, ...
         //
-        FullDevicePath = FileDevicePath (Handle, EFI_REMOVABLE_MEDIA_FILE_NAME);
-        if (FullDevicePath != NULL) {
+        FullDevicePathTemp = FileDevicePath (Handle, EFI_REMOVABLE_MEDIA_FILE_NAME);
+        if (FullDevicePathTemp != NULL) {
           REPORT_STATUS_CODE (EFI_PROGRESS_CODE, PcdGet32 (PcdProgressCodeOsLoaderLoad));
           Status = gBS->LoadImage (
                           TRUE,
                           gImageHandle,
-                          FullDevicePath,
+                          FullDevicePathTemp,
                           NULL,
                           0,
                           &ImageHandle
@@ -2122,6 +2125,10 @@ BdsFindUsbDevice (
         } else {
           continue;
         }
+      }
+
+      if (FullDevicePath != NULL) {
+        *FullDevicePath = FullDevicePathTemp;
       }
       break;
     }
@@ -2157,7 +2164,8 @@ BdsFindUsbDevice (
 **/
 EFI_HANDLE *
 BdsExpandUsbShortFormDevicePath (
-  IN EFI_DEVICE_PATH_PROTOCOL       *DevicePath
+  IN  EFI_DEVICE_PATH_PROTOCOL       *DevicePath,
+  OUT EFI_DEVICE_PATH_PROTOCOL       **FullDevicePath OPTIONAL
   )
 {
   EFI_HANDLE                *ImageHandle;
@@ -2191,14 +2199,14 @@ BdsExpandUsbShortFormDevicePath (
     //
     // Boot Option device path starts with USB Class or USB WWID device path.
     //
-    ImageHandle = BdsFindUsbDevice (NULL, ShortFormDevicePath);
+    ImageHandle = BdsFindUsbDevice (NULL, ShortFormDevicePath, FullDevicePath);
     if (ImageHandle == NULL) {
       //
       // Failed to find a match in existing devices, connect the short form USB
       // device path and try again.
       //
       BdsLibConnectUsbDevByShortFormDP (0xff, ShortFormDevicePath);
-      ImageHandle = BdsFindUsbDevice (NULL, ShortFormDevicePath);
+      ImageHandle = BdsFindUsbDevice (NULL, ShortFormDevicePath, FullDevicePath);
     }
   } else {
     //
@@ -2218,7 +2226,7 @@ BdsExpandUsbShortFormDevicePath (
     // Class or USB WWID device path, so just search in existing USB devices and
     // doesn't perform ConnectController here.
     //
-    ImageHandle = BdsFindUsbDevice (TempDevicePath, ShortFormDevicePath);
+    ImageHandle = BdsFindUsbDevice (TempDevicePath, ShortFormDevicePath, FullDevicePath);
     FreePool (TempDevicePath);
   }
 
@@ -2311,7 +2319,7 @@ BdsLibBootViaBootOption (
   // device in platform then load the boot file on this full device path and get the
   // image handle.
   //
-  ImageHandle = BdsExpandUsbShortFormDevicePath (DevicePath);
+  ImageHandle = BdsExpandUsbShortFormDevicePath (DevicePath, NULL);
 
   //
   // Adjust the different type memory page number just before booting
