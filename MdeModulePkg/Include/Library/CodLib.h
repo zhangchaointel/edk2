@@ -16,6 +16,8 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #ifndef __COD_LIB_H__
 #define __COD_LIB_H__
 
+#include <Guid/FileInfo.h>
+
 typedef struct {
   //
   // image address.
