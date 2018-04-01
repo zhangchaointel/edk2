@@ -142,7 +142,7 @@ InitCapsulePtr (
 
     DEBUG ((DEBUG_INFO, "CodLibGetAllCapsuleOnDisk Status - 0x%x\n", Status));
     CoDLibClearCapsuleOnDiskFlag();
-    mCapsuleTotalNumber += CapsuleOnDiskBufNum;
+    mCapsuleTotalNumber += (UINT32)CapsuleOnDiskBufNum;
   }
 
   DEBUG ((DEBUG_INFO, "mCapsuleTotalNumber - 0x%x\n", mCapsuleTotalNumber));
@@ -182,7 +182,7 @@ InitCapsulePtr (
 
   if (PcdGetBool(PcdCapsuleOnDiskSupport)) {
     for (CapsuleOnDiskIndex = 0; CapsuleOnDiskIndex < CapsuleOnDiskBufNum; CapsuleOnDiskIndex++) {
-      mCapsulePtr [Index++] = CapsuleOnDiskBuf[CapsuleOnDiskIndex]->BaseAddress;
+      mCapsulePtr [Index++] = CapsuleOnDiskBuf[CapsuleOnDiskIndex].ImageAddress;
     }
     if (CapsuleOnDiskBufNum != 0) {
       FreePool(CapsuleOnDiskBuf);

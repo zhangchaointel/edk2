@@ -13,6 +13,8 @@
 
 **/
 #include <Uefi.h>
+#include <Pi/PiMultiPhase.h>
+
 #include <Library/UefiLib.h>
 #include <Library/DebugLib.h>
 #include <Library/BaseLib.h>
@@ -22,11 +24,16 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/FileHandleLib.h>
-#include <Protocol/SimpleFileSystem.h>
-#include <Guid/FileSystemInfo.h>
 #include <Library/CapsuleLib.h>
 #include <Library/DevicePathLib.h>
-#include "IntenalCoDLib.h"
+#include <Library/GenericBdsLib.h>
+#include <Library/PrintLib.h>
+#include <Library/CodLib.h>
+
+#include <Protocol/SimpleFileSystem.h>
+#include <Guid/GlobalVariable.h>
+
+#include "InternalCoDLib.h"
 
 /**
 
@@ -155,155 +162,6 @@ SplitFileNameExtension (
 
 }
 
-
-/** Retrieve first entry from a directory.
-
-  This function takes an open directory handle and gets information from the
-  first entry in the directory.  A buffer is allocated to contain
-  the information and a pointer to the buffer is returned in *Buffer.  The
-  caller can use FileHandleFindNextFile() to get subsequent directory entries.
-
-  The buffer will be freed by FileHandleFindNextFile() when the last directory
-  entry is read.  Otherwise, the caller must free the buffer, using FreePool,
-  when finished with it.
-
-  @param[in]  DirHandle         The file handle of the directory to search.
-  @param[out] FileInfo          The pointer to pointer to buffer for file's information.
-
-  @retval EFI_SUCCESS           Found the first file.
-  @retval EFI_NOT_FOUND         Cannot find the directory.
-  @retval EFI_NO_MEDIA          The device has no media.
-  @retval EFI_DEVICE_ERROR      The device reported an error.
-  @retval EFI_VOLUME_CORRUPTED  The file system structures are corrupted.
-  @return Others                status of FileHandleGetInfo, FileHandleSetPosition,
-                                or FileHandleRead
-
-**/
-STATIC
-EFI_STATUS
-FileHandleFindFirstFile (
-  IN EFI_FILE_HANDLE            DirHandle,
-  OUT EFI_FILE_INFO             **FileInfo
-  )
-{
-  EFI_STATUS     Status;
-  UINTN          BufferSize;
-  EFI_FILE_INFO  *TempFileInfo;
-
-  TempFileInfo = NULL;
-
-  //
-  // Allocate a buffer sized to struct size + enough for the string at the end
-  //
-  BufferSize = MAX_FILE_INFO_LEN;
-  TempFileInfo = AllocateZeroPool(BufferSize);
-  if (TempFileInfo == NULL){
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  //
-  // Reset to the begining of the directory
-  //
-  Status = DirHandle->SetPosition(DirHandle, 0);
-  if (EFI_ERROR(Status)) {
-    FreePool(TempFileInfo);
-    return Status;
-  }
-
-  //
-  // Read in the info about the first file
-  //
-  Status = DirHandle->Read(DirHandle, &BufferSize, TempFileInfo);
-  if (EFI_ERROR(Status)) {
-    FreePool(TempFileInfo);
-    return Status;
-  }
-
-  //
-  // If we read 0 bytes (but did not have erros) we already read in the last file.
-  //
-  if (BufferSize == 0) {
-    FreePool(TempFileInfo);
-    return EFI_NOT_FOUND;
-  }
-
-  *FileInfo = TempFileInfo;
-
-  return EFI_SUCCESS;
-}
-
-
-/** Retrieve next entries from a directory.
-
-  To use this function, the caller must first call the FileHandleFindFirstFile()
-  function to get the first directory entry.  Subsequent directory entries are
-  retrieved by using the FileHandleFindNextFile() function.  This function can
-  be called several times to get each entry from the directory.  If the call of
-  FileHandleFindNextFile() retrieved the last directory entry, the next call of
-  this function will set *NoFile to TRUE and free the buffer.
-
-  @param[in]  DirHandle         The file handle of the directory.
-  @param[out] Buffer            The pointer to buffer for file's information.
-  @param[out] NoFile            The pointer to boolean when last file is found.
-
-  @retval EFI_SUCCESS           Found the next file, or reached last file
-  @retval EFI_NO_MEDIA          The device has no media.
-  @retval EFI_DEVICE_ERROR      The device reported an error.
-  @retval EFI_VOLUME_CORRUPTED  The file system structures are corrupted.
-
-**/
-STATIC
-EFI_STATUS
-FileHandleFindNextFile(
-  IN EFI_FILE_HANDLE         DirHandle,
-  OUT EFI_FILE_INFO          **FileInfo,
-  OUT BOOLEAN                *NoFile
-  )
-{
-  EFI_STATUS     Status;
-  UINTN          BufferSize;
-  EFI_FILE_INFO  *TempFileInfo;
-
-  TempFileInfo = NULL;
-
-  //
-  // Allocate a buffer sized to struct size + enough for the string at the end
-  //
-  BufferSize = MAX_FILE_INFO_LEN;
-  TempFileInfo = AllocateZeroPool(BufferSize);
-  if (TempFileInfo == NULL){
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  //
-  // This BufferSize MUST stay equal to the originally allocated one in FindFirstFile
-  //
-  BufferSize = MAX_FILE_INFO_LEN;
-
-  //
-  // Read in the info about the next file
-  //
-  Status = DirHandle->Read(DirHandle, &BufferSize, TempFileInfo);
-  if (EFI_ERROR(Status)) {
-    FreePool(TempFileInfo);
-    return Status;
-  }
-
-  //
-  // If we read 0 bytes (but did not have erros) we already read in the last file.
-  //
-  if (BufferSize != 0) {
-    *FileInfo = TempFileInfo;
-    *NoFile = FALSE;
-  } else {
-    FreePool(TempFileInfo);
-    *NoFile = TRUE;
-  }
-
-  return EFI_SUCCESS;
-}
-
-
 /**
 
   This routine is called to get all boot options determnined by  
@@ -371,16 +229,15 @@ GetDefaultActiveBootOptionList(
 **/
 EFI_STATUS 
 GetEfiSysPartitionFromActiveBootOption(
-  IN  LIST_ENTRY                      ActiveBootLists, OPTIONAL
+  IN  LIST_ENTRY                      *ActiveBootLists, OPTIONAL
   OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL **Fs
   )
 {
   EFI_STATUS                   Status;
   BDS_COMMON_OPTION            *BootOption;
   LIST_ENTRY                   DefaultBootLists;
-  LIST_ENTRY                   BootLists;
+  LIST_ENTRY                   *BootLists;
   LIST_ENTRY                   *Link;
-  EFI_DEVICE_PATH_PROTOCOL     *FilePath;
   EFI_DEVICE_PATH_PROTOCOL     *DevicePath;
   EFI_DEVICE_PATH_PROTOCOL     *TempDevicePath;
   HARDDRIVE_DEVICE_PATH        *Hd;
@@ -390,14 +247,14 @@ GetEfiSysPartitionFromActiveBootOption(
   *Fs              = NULL;
   ImageHandle      = NULL;
   TempDevicePath   = NULL;
-  DefaultBootLists = NULL;
 
   if (ActiveBootLists == NULL) {
     Status = GetDefaultActiveBootOptionList(&DefaultBootLists);
     if (EFI_ERROR(Status)) {
+      DEBUG ((EFI_D_ERROR, "GetDefaultActiveBootOptionList Failed %x!\n", Status));
       return Status;
     }
-    BootLists = DefaultBootLists;
+    BootLists = &DefaultBootLists;
   } else {
     BootLists = ActiveBootLists;
   }
@@ -408,7 +265,7 @@ GetEfiSysPartitionFromActiveBootOption(
   //  2. expend short/plug in devicepath
   //  3. LoadImage
   //
-  for (Link = BootLists.ForwardLink; Link != &BootLists; Link = Link->ForwardLink) {
+  for (Link = BootLists->ForwardLink; Link != BootLists; Link = Link->ForwardLink) {
     //
     // Get the boot option from the link list
     //
@@ -419,7 +276,7 @@ GetEfiSysPartitionFromActiveBootOption(
     // Skip LOAD_OPTION_ACTIVE boot option &  BBS device path
     //
     if (!IS_LOAD_OPTION_TYPE (BootOption->Attribute, LOAD_OPTION_ACTIVE) ||
-        DevicePathType (DevicePath) == BBS_DEVICE_PATH)) {
+        DevicePathType (DevicePath) == BBS_DEVICE_PATH) {
       continue;
     }
 
@@ -502,7 +359,7 @@ GetEfiSysPartitionFromActiveBootOption(
   //
   // Free all BootOption entry on list
   //
-  while(DefaultBootLists != NULL && !IsListEmpty(&DefaultBootLists)) {
+  while(!IsListEmpty(&DefaultBootLists)) {
     Link = DefaultBootLists.ForwardLink;
     RemoveEntryList(Link);
     //
@@ -581,7 +438,7 @@ GetFileInfoListInAlphabetFromDir(
 
   for ( Status = FileHandleFindFirstFile(Dir, &FileInfo)
       ; !EFI_ERROR(Status) && !NoFile
-      ; Status = FileHandleFindNextFile(Dir, &FileInfo, &NoFile)
+      ; Status = FileHandleFindNextFile(Dir, FileInfo, &NoFile)
      ){
 
     //
@@ -598,18 +455,24 @@ GetFileInfoListInAlphabetFromDir(
       goto EXIT;
     }
     NewFileInfoEntry->Signature = FILE_INFO_SIGNATURE;
-    NewFileInfoEntry->FileInfo  = FileInfo;
+    NewFileInfoEntry->FileInfo  = AllocateCopyPool(sizeof(EFI_FILE_INFO), FileInfo);
+    if (NewFileInfoEntry->FileInfo == NULL) {
+      FreePool(NewFileInfoEntry);
+      Status = EFI_OUT_OF_RESOURCES;
+    }
 
     NewFileInfoEntry->FnFirstPart  = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
     if (NewFileInfoEntry->FnFirstPart == NULL) {
+      FreePool(NewFileInfoEntry->FileInfo);
       FreePool(NewFileInfoEntry);
       Status = EFI_OUT_OF_RESOURCES;
       goto EXIT;
     }
     NewFileInfoEntry->FnSecondPart = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
     if (NewFileInfoEntry->FnSecondPart == NULL) {
-      FreePool(NewFileInfoEntry);
+      FreePool(NewFileInfoEntry->FileInfo);
       FreePool(NewFileInfoEntry->FnFirstPart);
+      FreePool(NewFileInfoEntry);
       Status = EFI_OUT_OF_RESOURCES;
       goto EXIT;
     }
@@ -1034,7 +897,7 @@ CodLibGetAllCapsuleOnDisk(
   RootDir = NULL;
   FileDir = NULL;
 
-  Status = GetEfiSysPartitionFromActiveBootOption(&Fs);
+  Status = GetEfiSysPartitionFromActiveBootOption(NULL, &Fs);
   if (EFI_ERROR(Status)) {
     return Status;
   }
