@@ -784,6 +784,7 @@ GetFileImageInAlphabetFromDir(
   FileHandle       = NULL;
   FileCount        = 0;
   TempFilePtrBuf   = NULL;
+  *FilePtr         = NULL;
 
   //
   // Get file list in Dir in alphabetical order
@@ -852,17 +853,22 @@ GetFileImageInAlphabetFromDir(
     // Skip read error file
     //
     if (EFI_ERROR(Status) || Size != (UINTN)FileInfo->FileSize) {
-      FreePool(TempFilePtrBuf[FileCount].ImageAddress);
-      FreePool(FileInfo);
-      TempFilePtrBuf[FileCount].ImageAddress = NULL;
-      TempFilePtrBuf[FileCount].FileInfo     = NULL;
       //
       // Remove this error file info accordingly
       // & move Link to BackLink
       //
       Link = RemoveEntryList(Link);
       Link = Link->BackLink;
+
+      FreePool(FileInfoEntry->FileInfo);
+      FreePool(FileInfoEntry->FnFirstPart);
+      FreePool(FileInfoEntry->FnSecondPart);
       FreePool(FileInfoEntry);
+  
+      FreePool(TempFilePtrBuf[FileCount].ImageAddress);
+      TempFilePtrBuf[FileCount].ImageAddress = NULL;
+      TempFilePtrBuf[FileCount].FileInfo     = NULL;
+
       continue;
     }
     TempFilePtrBuf[FileCount].FileInfo = FileInfo;

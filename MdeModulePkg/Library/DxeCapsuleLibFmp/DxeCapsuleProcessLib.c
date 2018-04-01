@@ -109,8 +109,15 @@ InitCapsulePtr (
   VOID
   )
 {
+  EFI_STATUS                  Status;
   EFI_PEI_HOB_POINTERS        HobPointer;
   UINTN                       Index;
+  UINTN                       CapsuleOnDiskIndex;
+  IMAGE_INFO                  *CapsuleOnDiskBuf;
+  UINTN                       CapsuleOnDiskBufNum;
+
+  CapsuleOnDiskBuf    = NULL;
+  CapsuleOnDiskBufNum = 0;
 
   //
   // Find all capsule images from hob
@@ -131,11 +138,15 @@ InitCapsulePtr (
   // Find all capsule images from disk
   //
   if (PcdGetBool(PcdCapsuleOnDiskSupport) && CodLibCheckCapsuleOnDiskFlag()) {
-    CodLibGetAllCapsuleOnDisk();
+    Status = CodLibGetAllCapsuleOnDisk(&CapsuleOnDiskBuf, &CapsuleOnDiskBufNum);
 
+    DEBUG ((DEBUG_INFO, "CodLibGetAllCapsuleOnDisk Status - 0x%x\n", Status));
     CoDLibClearCapsuleOnDiskFlag();
+    mCapsuleTotalNumber += CapsuleOnDiskBufNum;
   }
-  
+
+  DEBUG ((DEBUG_INFO, "mCapsuleTotalNumber - 0x%x\n", mCapsuleTotalNumber));
+
   if (mCapsuleTotalNumber == 0) {
     return ;
   }
@@ -168,6 +179,16 @@ InitCapsulePtr (
     mCapsulePtr [Index++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
     HobPointer.Raw = GET_NEXT_HOB (HobPointer);
   }
+
+  if (PcdGetBool(PcdCapsuleOnDiskSupport)) {
+    for (CapsuleOnDiskIndex = 0; CapsuleOnDiskIndex < CapsuleOnDiskBufNum; CapsuleOnDiskIndex++) {
+      mCapsulePtr [Index++] = CapsuleOnDiskBuf[CapsuleOnDiskIndex]->BaseAddress;
+    }
+    if (CapsuleOnDiskBufNum != 0) {
+      FreePool(CapsuleOnDiskBuf);
+    }
+  }
+
 }
 
 /**
