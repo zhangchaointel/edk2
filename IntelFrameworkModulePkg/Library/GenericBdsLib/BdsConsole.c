@@ -787,11 +787,8 @@ EnableQuietBoot (
 
       CoordinateX = 0;
       CoordinateY = 0;
-      if (!FeaturePcdGet(PcdBootlogoOnlyEnable)) {
+
         Attribute   = EfiBadgingDisplayAttributeCenter;
-      } else {
-        Attribute   = EfiBadgingDisplayAttributeCustomized;
-      } 
     }
 
     if (Blt != NULL) {

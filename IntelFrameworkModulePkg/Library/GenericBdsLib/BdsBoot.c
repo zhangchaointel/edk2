@@ -28,7 +28,7 @@ EFI_HII_HANDLE gBdsLibStringPackHandle = NULL;
 **/
 VOID
 EFIAPI
-BmEndOfBdsPerfCode (
+GBSBmEndOfBdsPerfCode (
   IN EFI_EVENT  Event,
   IN VOID       *Context
   )
@@ -1718,7 +1718,7 @@ BdsLibDoLegacyBoot (
     //
     Status = EfiCreateEventLegacyBootEx(
                TPL_NOTIFY,
-               BmEndOfBdsPerfCode,
+               GBSBmEndOfBdsPerfCode,
                NULL, 
                &LegacyBootEvent
                );
@@ -2074,7 +2074,7 @@ BdsFindUsbDevice (
         Status = gBS->LoadImage (
                        TRUE,
                        gImageHandle,
-                       FullDevicePath,
+                       FullDevicePathTemp,
                        NULL,
                        0,
                        &ImageHandle
@@ -2456,7 +2456,7 @@ BdsLibBootViaBootOption (
   // Write boot to OS performance data for UEFI boot
   //
   PERF_CODE (
-    BmEndOfBdsPerfCode (NULL, NULL);
+    GBSBmEndOfBdsPerfCode (NULL, NULL);
   );
 
   //
