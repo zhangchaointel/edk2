@@ -280,7 +280,6 @@ INF  NetworkPkg/TlsDxe/TlsDxe.inf
 INF  NetworkPkg/TlsAuthConfigDxe/TlsAuthConfigDxe.inf
 !endif
 INF  MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
-INF  MdeModulePkg/Application/CapsuleApp/CapsuleApp.inf
 
 ################################################################################
 #
