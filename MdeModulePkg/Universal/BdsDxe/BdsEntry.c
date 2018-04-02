@@ -554,7 +554,7 @@ BdsFormalizeOSIndicationVariable (
   if (Status != EFI_NOT_FOUND) {
     OsIndicationSupport = EFI_OS_INDICATIONS_BOOT_TO_FW_UI | EFI_OS_INDICATIONS_START_PLATFORM_RECOVERY;
     if (PcdGetBool(PcdCapsuleOnDiskSupport)) {
-      OsIndicationSupport |= EFI_OS_INDICATIONS_FMP_CAPSULE_SUPPORTED;
+      OsIndicationSupport |= EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED;
     }
 
     EfiBootManagerFreeLoadOption (&BootManagerMenu);
