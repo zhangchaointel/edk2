@@ -879,7 +879,7 @@ UefiMain (
   Status = gRT->QueryCapsuleCapabilities (CapsuleHeaderArray, CapsuleNum, &MaxCapsuleSize, &ResetType);
   if (EFI_ERROR(Status)) {
     Print (L"CapsuleApp: failed to query capsule capability - %r\n", Status);
-    goto Done;
+//    goto Done;
   }
 
   for (Index = 0; Index < CapsuleNum; Index++) {
