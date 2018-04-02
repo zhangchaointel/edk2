@@ -310,6 +310,56 @@ INF MdeModulePkg/Universal/LoadFileOnFv2/LoadFileOnFv2.inf
 #
 ################################################################################
 
+[FV.BiosUpdateCargo]
+FvAlignment        = 16
+ERASE_POLARITY     = 1
+MEMORY_MAPPED      = TRUE
+STICKY_WRITE       = TRUE
+LOCK_CAP           = TRUE
+LOCK_STATUS        = TRUE
+WRITE_DISABLED_CAP = TRUE
+WRITE_ENABLED_CAP  = TRUE
+WRITE_STATUS       = TRUE
+WRITE_LOCK_CAP     = TRUE
+WRITE_LOCK_STATUS  = TRUE
+READ_DISABLED_CAP  = TRUE
+READ_ENABLED_CAP   = TRUE
+READ_STATUS        = TRUE
+READ_LOCK_CAP      = TRUE
+READ_LOCK_STATUS   = TRUE
+
+FILE RAW = 14D83A59-A810-4556-8192-1C0A593C065C { # PcdEdkiiSystemFirmwareFileGuid
+    FD = Nt32
+  }
+
+#FILE RAW = ce57b167-b0e4-41e8-a897-5f4feb781d40 {
+#    FV = CAPSULEDISPATCHFV
+#  }
+
+#FILE RAW = 812136D3-4D3A-433A-9418-29BB9BF78F6E {
+#    DenlowPkg/Feature/Capsule/SystemFirmwareUpdateConfig/SystemFirmwareUpdateConfig.ini
+#  }
+
+#
+#  Capsule related setting.
+#
+[FmpPayload.FmpPayloadBiosPkcs7]
+IMAGE_HEADER_INIT_VERSION = 0x02
+IMAGE_TYPE_ID             = ac29b86f-7a25-4096-8203-5c7aa5284ee6 # System FMP special Guid (do not change it)
+IMAGE_INDEX               = 0x1
+HARDWARE_INSTANCE         = 0x0
+MONOTONIC_COUNT           = 0x2
+CERTIFICATE_GUID          = 4AAFD29D-68DF-49EE-8AA9-347D375665A7 # PKCS7
+
+FV = BiosUpdateCargo
+
+[Capsule.BiosCapsuleFmpPkcs7]
+CAPSULE_GUID                = 6dcbd5ed-e82d-4c44-bda1-7194199ad92a # FMP special Guid (do not change it)
+CAPSULE_FLAGS               = PersistAcrossReset,InitiateReset
+CAPSULE_HEADER_SIZE         = 0x20
+CAPSULE_HEADER_INIT_VERSION = 0x1
+
+FMP_PAYLOAD = FmpPayloadBiosPkcs7
 
 ############################################################################
 # Example of a DXE_DRIVER FFS file with a Checksum encapsulation section   # 
