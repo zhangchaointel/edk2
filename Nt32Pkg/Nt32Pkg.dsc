@@ -549,6 +549,8 @@
       FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
   }
 
+  MdeModulePkg/Application/CapsuleApp/CapsuleApp.inf
+
 ###################################################################################################
 #
 # BuildOptions Section - Define the module specific tool chain flags that should be used as
