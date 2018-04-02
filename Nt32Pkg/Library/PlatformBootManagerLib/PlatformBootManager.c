@@ -79,6 +79,7 @@ PlatformBootManagerBeforeConsole (
   UINTN                        Index;
   EFI_STATUS                   Status;
   WIN_NT_SYSTEM_CONFIGURATION  *Configuration;
+  EFI_BOOT_MODE                BootMode;
 
   GetVariable2 (L"Setup", &gEfiWinNtSystemConfigGuid, (VOID **) &Configuration, NULL);
   if (Configuration != NULL) {
@@ -116,6 +117,23 @@ PlatformBootManagerBeforeConsole (
     if ((gPlatformConsole[Index].ConnectType & STD_ERROR) == STD_ERROR) {
       EfiBootManagerUpdateConsoleVariable (ErrOut, gPlatformConsole[Index].DevicePath, NULL);
     }
+  }
+
+  
+  BootMode = GetBootModeHob();
+  switch (BootMode) {
+  case BOOT_ON_FLASH_UPDATE:
+    //
+    // Connect the console before do capsule update.
+    //
+    EfiBootManagerConnectAllDefaultConsoles ();
+
+    DEBUG((EFI_D_INFO, "ProcessCapsules Before EndOfDxe ......\n"));
+    Status = ProcessCapsules ();
+    DEBUG((EFI_D_INFO, "ProcessCapsules %r\n", Status));
+    break;
+  default:
+    break;
   }
 
   //

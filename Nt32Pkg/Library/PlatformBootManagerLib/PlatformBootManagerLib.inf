@@ -54,6 +54,7 @@
   HiiLib
   PrintLib
   BootLogoLib
+  CapsuleLib
 
 [Guids]
   gEfiWinNtSystemConfigGuid

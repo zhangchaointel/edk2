@@ -37,7 +37,8 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <Library/PrintLib.h>
 #include <Library/DxeServicesLib.h>
 #include <Library/BootLogoLib.h>
-
+#include <Library/CapsuleLib.h>
+#include <Library/HobLib.h>
 
 typedef struct {
   EFI_DEVICE_PATH_PROTOCOL  *DevicePath;
