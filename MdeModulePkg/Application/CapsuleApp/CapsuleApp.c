@@ -106,6 +106,30 @@ DumpEsrtData (
   );
 
 /**
+  Dump Provisioned Data.
+**/
+VOID
+DumpProvisionedData (
+  VOID
+  );
+
+/**
+  Process Capsule On Disk.
+
+  @param[in]  CapsuleBuffer    An array of pointer to capsule images
+  @param[in]  FileSize         An array of UINTN to capsule images size
+  @param[in]  CapsuleNum       The count of capsule images
+
+  @retval EFI_SUCCESS ??????.
+**/
+EFI_STATUS
+ProcessCapsuleOnDisk (
+  IN VOID                          **CapsuleBuffer,
+  IN UINTN                         *FileSize,
+  IN UINTN                         CapsuleNum
+  );
+
+/**
   Read a file.
 
   @param[in]  FileName        The file to be read.
@@ -653,7 +677,7 @@ CleanGatherList (
         break;
       }
 
-      TempBlockPtr2 = (VOID *) ((UINTN) TempBlockPtr->Union.ContinuationPointer);
+      TempBlockPtr2 = (VOID *) ((UINTN) TempBlockPtr[Index].Union.ContinuationPointer);
       FreePool(TempBlockPtr1);
       TempBlockPtr1 = TempBlockPtr2;
     }
@@ -670,10 +694,12 @@ PrintUsage (
 {
   Print(L"CapsuleApp:  usage\n");
   Print(L"  CapsuleApp <Capsule...> [-NR]\n");
+  Print(L"  CapsuleApp <Capsule...> [-OD]\n");
   Print(L"  CapsuleApp -S\n");
   Print(L"  CapsuleApp -C\n");
   Print(L"  CapsuleApp -P\n");
   Print(L"  CapsuleApp -E\n");
+  Print(L"  CapsuleApp -L\n");
   Print(L"  CapsuleApp -G <BMP> -O <Capsule>\n");
   Print(L"  CapsuleApp -N <Capsule> -O <NestedCapsule>\n");
   Print(L"  CapsuleApp -D <Capsule>\n");
@@ -681,12 +707,14 @@ PrintUsage (
   Print(L"Parameter:\n");
   Print(L"  -NR: No reset will be triggered for the capsule\n");
   Print(L"       with CAPSULE_FLAGS_PERSIST_ACROSS_RESET and without CAPSULE_FLAGS_INITIATE_RESET.\n");
+  Print(L"  -OD: Delivery of Capsules via file on Mass Storage device.");
   Print(L"  -S:  Dump capsule report variable (EFI_CAPSULE_REPORT_GUID),\n");
   Print(L"       which is defined in UEFI specification.\n");
   Print(L"  -C:  Clear capsule report variable (EFI_CAPSULE_RPORT_GUID),\n");
   Print(L"       which is defined in UEFI specification.\n");
   Print(L"  -P:  Dump UEFI FMP protocol info.\n");
   Print(L"  -E:  Dump UEFI ESRT table info.\n");
+  Print(L"  -L:  Dump provisioned capsule image information.\n");
   Print(L"  -G:  Convert a BMP file to be a UX capsule,\n");
   Print(L"       according to Windows Firmware Update document\n");
   Print(L"  -N:  Append a Capsule Header to an existing capsule image,\n");
@@ -723,6 +751,7 @@ UefiMain (
   EFI_RESET_TYPE                 ResetType;
   BOOLEAN                        NeedReset;
   BOOLEAN                        NoReset;
+  BOOLEAN                        CapsuleOnDisk;
   CHAR16                         *CapsuleName;
   UINTN                          CapsuleNum;
   UINTN                          Index;
@@ -784,10 +813,18 @@ UefiMain (
     DumpEsrtData();
     return EFI_SUCCESS;
   }
+  if (StrCmp(Argv[1], L"-L") == 0) {
+    DumpProvisionedData();
+    return EFI_SUCCESS;
+  }
   CapsuleFirstIndex = 1;
   NoReset = FALSE;
+  CapsuleOnDisk = FALSE;
   if ((Argc > 1) && (StrCmp(Argv[Argc - 1], L"-NR") == 0)) {
     NoReset = TRUE;
+    CapsuleLastIndex = Argc - 2;
+  } else if ((Argc > 1) && (StrCmp(Argv[Argc - 1], L"-OD") == 0)) {
+    CapsuleOnDisk = TRUE;
     CapsuleLastIndex = Argc - 2;
   } else {
     CapsuleLastIndex = Argc - 1;
@@ -849,6 +886,17 @@ UefiMain (
     if (FileSize[Index] > MaxCapsuleSize) {
       Print (L"CapsuleApp: capsule is too large to update, %ld is allowed\n", MaxCapsuleSize);
       Status = EFI_UNSUPPORTED;
+      goto Done;
+    }
+  }
+
+  //
+  // Check whether is capsule on disk.
+  //
+  if (CapsuleOnDisk) {
+    Status = ProcessCapsuleOnDisk (CapsuleBuffer, FileSize, CapsuleNum);
+    if (Status != EFI_SUCCESS) {
+      Print (L"CapsuleApp: failed to update capsule - %r\n", Status);
       goto Done;
     }
   }

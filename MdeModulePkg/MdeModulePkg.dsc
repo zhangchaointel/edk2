@@ -166,6 +166,7 @@
   HobLib|MdePkg/Library/DxeHobLib/DxeHobLib.inf
   MemoryAllocationLib|MdePkg/Library/UefiMemoryAllocationLib/UefiMemoryAllocationLib.inf
   DebugLib|MdePkg/Library/UefiDebugLibStdErr/UefiDebugLibStdErr.inf
+  FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
 
 [LibraryClasses.ARM, LibraryClasses.AARCH64]
   ArmLib|ArmPkg/Library/ArmLib/ArmBaseLib.inf

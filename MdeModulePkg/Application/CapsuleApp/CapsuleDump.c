@@ -27,6 +27,9 @@
 #include <Guid/SystemResourceTable.h>
 #include <Guid/FmpCapsule.h>
 #include <IndustryStandard/WindowsUxCapsule.h>
+#include <Guid/CapsuleVendor.h>
+#include <Protocol/SimpleFileSystem.h>
+#include <Library/FileHandleLib.h>
 
 /**
   Read a file.
@@ -510,6 +513,245 @@ DumpEsrtData (
   }
   DumpEsrt(Esrt);
   Print(L"\n");
+}
+
+
+/**
+  Dump capsule information from CapsuleHeader
+
+  @param[in] CapsuleHeader       The name of the capsule image.
+
+  @retval EFI_SUCCESS            The capsule information is dumped.
+**/
+EFI_STATUS
+DumpCapsuleFromBuffer (
+  IN EFI_CAPSULE_HEADER                         *CapsuleHeader
+  )
+{
+  EFI_STATUS                                    Status;
+
+  if (CompareGuid(&CapsuleHeader->CapsuleGuid, &gWindowsUxCapsuleGuid)) {
+    DumpUxCapsule(CapsuleHeader);
+    Status = EFI_SUCCESS;
+    goto Done;
+  }
+
+  if (CompareGuid(&CapsuleHeader->CapsuleGuid, &gEfiFmpCapsuleGuid)) {
+    DumpFmpCapsule(CapsuleHeader);
+  }
+  if (IsNestedFmpCapsule(CapsuleHeader)) {
+    Print(L"[NestedCapusule]\n");
+    Print(L"CapsuleHeader:\n");
+    Print(L"  CapsuleGuid      - %g\n", &CapsuleHeader->CapsuleGuid);
+    Print(L"  HeaderSize       - 0x%x\n", CapsuleHeader->HeaderSize);
+    Print(L"  Flags            - 0x%x\n", CapsuleHeader->Flags);
+    Print(L"  CapsuleImageSize - 0x%x\n", CapsuleHeader->CapsuleImageSize);
+    DumpFmpCapsule((EFI_CAPSULE_HEADER *)((UINTN)CapsuleHeader + CapsuleHeader->HeaderSize));
+  }
+
+Done:
+  return Status;
+}
+
+/**
+  Dump capsule information from disk
+
+  @param[in] DevicePath          The device path of disk.
+
+  @retval EFI_SUCCESS            The capsule information is dumped.
+**/
+EFI_STATUS
+DumpCapsuleFromDisk (
+  IN EFI_DEVICE_PATH_PROTOCOL                   *DevicePath
+  )
+{
+  EFI_STATUS                                    Status;
+  EFI_HANDLE                                    Handle;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL               *Fs;
+  EFI_FILE                                      *Root;
+  EFI_FILE                                      *DirHandle = NULL;
+  EFI_FILE                                      *FileHandle = NULL;
+  CHAR16                                        *mDirName = L"\\efi\\UpdateCapsule";
+  CHAR16                                        FileName[50];
+  UINTN                                         Index = 0;
+  UINTN                                         FileSize;
+  VOID                                          *FileBuffer;
+
+  Status = gBS->LocateDevicePath (&gEfiSimpleFileSystemProtocolGuid, &DevicePath, &Handle);
+  if (EFI_ERROR(Status)) {
+    return EFI_NOT_FOUND;
+  }
+
+  Status = gBS->HandleProtocol (Handle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
+  if (EFI_ERROR(Status)) {
+    return EFI_NOT_FOUND;
+  }
+
+  Status = Fs->OpenVolume(Fs, &Root);
+  if (EFI_ERROR(Status)) {
+    Print(L"Cannot open volume. Status = %r\n", Status);
+    return EFI_NOT_FOUND;
+  }
+
+  Status = Root->Open (Root, &DirHandle, mDirName, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE , 0);
+  if (EFI_ERROR(Status)) {
+    Print(L"Cannot open \\efi\\UpdateCapsule. Status = %r\n", Status);
+    return EFI_NOT_FOUND;
+  }
+
+  while (TRUE) {
+    UnicodeSPrint (
+      FileName,
+      sizeof (FileName),
+      L"CoDUpdate%d.cap",
+      Index
+      );
+
+    FileHandle = NULL;
+    Status = DirHandle->Open (DirHandle, &FileHandle, FileName, EFI_FILE_MODE_READ, 0);
+    if (EFI_ERROR(Status)) {
+      break;
+    }
+
+    Status = FileHandleGetSize (FileHandle, (UINT64 *) &FileSize);
+    if (EFI_ERROR(Status)) {
+      Print(L"Cannot read file %s. Status = %r\n", FileName, Status);
+      FileHandleClose (FileHandle);
+      return Status;
+    }
+
+    FileBuffer = AllocatePool (FileSize);
+    if (FileBuffer == NULL) {
+      return RETURN_OUT_OF_RESOURCES;
+    }
+
+    Status = FileHandleRead (FileHandle, &FileSize, FileBuffer);
+    if (EFI_ERROR(Status)) {
+      Print(L"Cannot read file %s. Status = %r\n", FileName, Status);
+      FreePool(FileBuffer);
+      FileHandleClose (FileHandle);
+      return Status;
+    }
+
+    Print(L"###################\n");
+    Print(L"# %s #:\n", FileName);
+    Print(L"###################\n");
+    DumpCapsuleFromBuffer ((EFI_CAPSULE_HEADER *) FileBuffer);
+    FileHandleClose (FileHandle);
+    FreePool(FileBuffer);
+    Index++;
+  }
+
+  return EFI_SUCCESS;
+}
+
+/**
+  Dump capsule inforomation form Gather list.
+
+  @param[in]  BlockDescriptors The block descriptors for the capsule images
+**/
+VOID
+DumpBlockDescriptors (
+  IN EFI_CAPSULE_BLOCK_DESCRIPTOR   *BlockDescriptors
+  )
+{
+  EFI_CAPSULE_BLOCK_DESCRIPTOR      *TempBlockPtr;
+
+  TempBlockPtr = BlockDescriptors;
+
+  while (TRUE) {
+    if (TempBlockPtr->Length != 0) {
+      DumpCapsuleFromBuffer ((EFI_CAPSULE_HEADER *) (UINTN) TempBlockPtr->Union.DataBlock);
+    } else {
+      if (TempBlockPtr->Union.ContinuationPointer == (UINTN)NULL) {
+        break;
+      } else {
+        TempBlockPtr = (EFI_CAPSULE_BLOCK_DESCRIPTOR *) (UINTN) TempBlockPtr->Union.ContinuationPointer;
+      }
+    }
+  }
+}
+
+/**
+  Dump Provisioned Data.
+**/
+VOID
+DumpProvisionedData (
+  VOID
+  )
+{
+  EFI_STATUS                 Status;
+  CHAR16                     CapsuleVarName[30];
+  CHAR16                     *TempVarName;
+  UINTN                      Index;
+  EFI_PHYSICAL_ADDRESS       CapsuleDataPtr64;
+  UINT16                     *BootNext;
+  CHAR16                     BootName[20];
+  UINT8                      *BootOption;
+  UINT8                      *BootOptionPtr;
+  CHAR16                     *Description;
+  EFI_DEVICE_PATH_PROTOCOL   *DevicePath;
+
+  Index = 0;
+
+  StrCpyS (CapsuleVarName, sizeof(CapsuleVarName)/sizeof(CHAR16), EFI_CAPSULE_VARIABLE_NAME);
+  TempVarName = CapsuleVarName + StrLen (CapsuleVarName);
+  while (TRUE) {
+    if (Index > 0) {
+      UnicodeValueToStringS (
+        TempVarName,
+        sizeof (CapsuleVarName) - ((UINTN)TempVarName - (UINTN)CapsuleVarName),
+        0,
+        Index,
+        0
+        );
+    }
+
+    Status = GetVariable2 (
+              CapsuleVarName,
+              &gEfiCapsuleVendorGuid,
+              (VOID *) &CapsuleDataPtr64,
+              NULL
+              );
+    if (EFI_ERROR(Status)) {
+      if (Index == 0) {
+        Print(L"No capsule data provisioned in memory.\n");
+      }
+      break;
+    } else {
+      Index ++;
+      Print (L"CapsuleUpdateData%d:\n", Index);
+      DumpBlockDescriptors ((EFI_CAPSULE_BLOCK_DESCRIPTOR*) (UINTN) CapsuleDataPtr64);
+    }
+  }
+
+  Status = GetVariable2 (
+             L"BootNext",
+             &gEfiGlobalVariableGuid,
+             (VOID **) &BootNext,
+             NULL
+            );
+  if (!EFI_ERROR(Status)) {
+    UnicodeSPrint (BootName, sizeof (BootName), L"Boot%04x", *BootNext);
+    Status = GetVariable2 (
+               BootName,
+               &gEfiGlobalVariableGuid,
+               (VOID **) &BootOption,
+               NULL
+    );
+    if (!EFI_ERROR(Status)) {
+      //
+      // Get description and device path
+      //
+      BootOptionPtr = BootOption;
+      BootOptionPtr += sizeof (UINT32) + sizeof (UINT16);
+      Description = (CHAR16 *) BootOptionPtr;
+      BootOptionPtr += StrSize (Description);
+      DevicePath = (EFI_DEVICE_PATH_PROTOCOL *) BootOptionPtr;
+      DumpCapsuleFromDisk (DevicePath);
+    }
+  }
+
 }
 
 /**

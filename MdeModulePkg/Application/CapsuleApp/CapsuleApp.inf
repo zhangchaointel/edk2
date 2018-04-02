@@ -33,6 +33,7 @@
 [Sources]
   CapsuleApp.c
   CapsuleDump.c
+  CapsuleOnDisk.c
   AppSupport.c
 
 [Packages]
@@ -47,12 +48,14 @@
   gEfiCertTypeRsa2048Sha256Guid          ## CONSUMES   ## GUID
   gEfiCertPkcs7Guid                      ## CONSUMES   ## GUID
   gEfiSystemResourceTableGuid            ## CONSUMES   ## GUID
+  gEfiCapsuleVendorGuid                  ## SOMETIMES_CONSUMES ## Variable:L"CapsuleUpdateData"
 
 [Protocols]
   gEfiGraphicsOutputProtocolGuid         ## CONSUMES
   gEfiFirmwareManagementProtocolGuid     ## CONSUMES
   gEfiShellParametersProtocolGuid        ## CONSUMES
   gEfiShellProtocolGuid                  ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid       ## SOMETIMES_CONSUMES
 
 [LibraryClasses]
   BaseLib
@@ -63,6 +66,7 @@
   UefiRuntimeServicesTableLib
   UefiLib
   PrintLib
+  FileHandleLib
 
 [UserExtensions.TianoCore."ExtraFiles"]
   CapsuleAppExtra.uni
