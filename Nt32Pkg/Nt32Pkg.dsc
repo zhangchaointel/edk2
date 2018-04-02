@@ -153,6 +153,9 @@
   SerialPortLib|MdePkg/Library/BaseSerialPortLibNull/BaseSerialPortLibNull.inf
   CapsuleLib|MdeModulePkg/Library/DxeCapsuleLibNull/DxeCapsuleLibNull.inf
   BootLogoLib|MdeModulePkg/Library/BootLogoLib/BootLogoLib.inf
+  GenericBdsLib|IntelFrameworkModulePkg\Library\GenericBdsLib\GenericBdsLib.inf
+  CodLib|MdeModulePkg/Library/CoDLib/CoDLib.inf
+
   #
   # Platform
   #

@@ -24,17 +24,21 @@ Abstract:
 //
 // The package level header files this module uses
 //
+#include <Uefi.h>
 #include <PiPei.h>
 //
 // The protocols, PPI and GUID defintions for this module
 //
 #include <Ppi/MasterBootMode.h>
 #include <Ppi/BootInRecoveryMode.h>
+#include <Ppi/ReadOnlyVariable2.h>
+
 //
 // The Library classes this module consumes
 //
 #include <Library/DebugLib.h>
 #include <Library/PeimEntryPoint.h>
+#include <Library/PeiServicesLib.h>
 
 
 //
@@ -51,6 +55,58 @@ EFI_PEI_PPI_DESCRIPTOR  mPpiListRecoveryBootMode = {
   &gEfiPeiBootInRecoveryModePpiGuid,
   NULL
 };
+
+/**
+  Detect if capsule on disk is triggered by checking OsIndications variable.
+
+  @retval TRUE  if it's Capsule On Disk is triggered.
+
+  @retval FALSE if it's Capsule On Disk is triggered.
+**/
+STATIC
+BOOLEAN
+CheckCapsuleOnDisk (
+  VOID
+  )
+{
+  EFI_STATUS                      Status;
+  EFI_PEI_READ_ONLY_VARIABLE2_PPI *PPIVariableServices;
+  UINT64                          OsIndication;
+  UINTN                           DataSize;
+
+  Status = PeiServicesLocatePpi (
+             &gEfiPeiReadOnlyVariable2PpiGuid,
+             0,
+             NULL,
+             (VOID **) &PPIVariableServices
+             );
+  if (EFI_ERROR(Status)) {
+    return FALSE;
+  }
+
+  //
+  // Check OsIndications Variable
+  //
+  DataSize = sizeof (OsIndication);
+  Status = PPIVariableServices->GetVariable (
+                                  PPIVariableServices,
+                                  L"OsIndications",
+                                  &gEfiGlobalVariableGuid,
+                                  NULL,
+                                  &DataSize,
+                                  (VOID *) &OsIndication
+                                  );
+  if (EFI_ERROR(Status) || DataSize != sizeof(UINT64)) {
+    return FALSE;
+  }
+
+  if ((OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) == 0) {
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
 
 EFI_STATUS
 EFIAPI
@@ -85,6 +141,14 @@ Returns:
   // Should we read an environment variable in order to easily change this?
   //
   BootMode  = BOOT_WITH_FULL_CONFIGURATION;
+
+  if (CheckCapsuleOnDisk() && BootMode != BOOT_ON_S4_RESUME) {
+    //
+    // Capsule On Disk detection in 3rd priority
+    // Do not process Capsule in S4 path
+    //
+    BootMode = BOOT_ON_FLASH_UPDATE;
+  }
 
   Status    = (**PeiServices).SetBootMode (PeiServices, (UINT8) BootMode);
   ASSERT_EFI_ERROR (Status);

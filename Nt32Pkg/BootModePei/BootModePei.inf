@@ -35,16 +35,20 @@
 
 [Packages]
   MdePkg/MdePkg.dec
-
+  MdeModulePkg/MdeModulePkg.dec
 
 [LibraryClasses]
   PeimEntryPoint
   DebugLib
-
+  PeiServicesLib
 
 [Ppis]
   gEfiPeiMasterBootModePpiGuid                  # PPI ALWAYS_PRODUCED
   gEfiPeiBootInRecoveryModePpiGuid              # PPI SOMETIMES_PRODUCED
+  gEfiPeiReadOnlyVariable2PpiGuid               # PPI SOMETIMES_CONSUMED
+
+[Guids]
+  gEfiGlobalVariableGuid
 
 [depex]
-  TRUE
+  gEfiPeiReadOnlyVariable2PpiGuid
