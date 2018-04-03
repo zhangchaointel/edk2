@@ -437,8 +437,6 @@ ProcessCapsuleOnDisk (
     return Status;
   }
 
-  gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
-
   return EFI_SUCCESS;
 
 }

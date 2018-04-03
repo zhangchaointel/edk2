@@ -822,10 +822,20 @@ UefiMain (
   CapsuleOnDisk = FALSE;
   if ((Argc > 1) && (StrCmp(Argv[Argc - 1], L"-NR") == 0)) {
     NoReset = TRUE;
-    CapsuleLastIndex = Argc - 2;
+    if (StrCmp(Argv[Argc - 2], L"-OD") == 0) {
+      CapsuleOnDisk = TRUE;
+      CapsuleLastIndex = Argc - 3;
+    } else {
+      CapsuleLastIndex = Argc - 2;
+    }
   } else if ((Argc > 1) && (StrCmp(Argv[Argc - 1], L"-OD") == 0)) {
     CapsuleOnDisk = TRUE;
-    CapsuleLastIndex = Argc - 2;
+    if (StrCmp(Argv[Argc - 2], L"-NR") == 0) {
+      NoReset = TRUE;
+      CapsuleLastIndex = Argc - 3;
+    } else {
+      CapsuleLastIndex = Argc - 2;
+    }
   } else {
     CapsuleLastIndex = Argc - 1;
   }
@@ -879,7 +889,7 @@ UefiMain (
   Status = gRT->QueryCapsuleCapabilities (CapsuleHeaderArray, CapsuleNum, &MaxCapsuleSize, &ResetType);
   if (EFI_ERROR(Status)) {
     Print (L"CapsuleApp: failed to query capsule capability - %r\n", Status);
-//    goto Done;
+    goto Done;
   }
 
   for (Index = 0; Index < CapsuleNum; Index++) {
@@ -898,6 +908,12 @@ UefiMain (
     if (Status != EFI_SUCCESS) {
       Print (L"CapsuleApp: failed to update capsule - %r\n", Status);
       goto Done;
+    } else {
+      if (!NoReset) {
+        gRT->ResetSystem (ResetType, EFI_SUCCESS, 0, NULL);
+      } else {
+        goto Done;
+      }
     }
   }
 

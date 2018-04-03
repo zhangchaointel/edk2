@@ -634,7 +634,7 @@ DumpCapsuleFromDisk (
     }
 
     Print(L"###################\n");
-    Print(L"# %s #:\n", FileName);
+    Print(L"# %s  #\n", FileName);
     Print(L"###################\n");
     DumpCapsuleFromBuffer ((EFI_CAPSULE_HEADER *) FileBuffer);
     FileHandleClose (FileHandle);
@@ -662,6 +662,7 @@ DumpBlockDescriptors (
   while (TRUE) {
     if (TempBlockPtr->Length != 0) {
       DumpCapsuleFromBuffer ((EFI_CAPSULE_HEADER *) (UINTN) TempBlockPtr->Union.DataBlock);
+      TempBlockPtr += 1;
     } else {
       if (TempBlockPtr->Union.ContinuationPointer == (UINTN)NULL) {
         break;
@@ -684,7 +685,7 @@ DumpProvisionedData (
   CHAR16                     CapsuleVarName[30];
   CHAR16                     *TempVarName;
   UINTN                      Index;
-  EFI_PHYSICAL_ADDRESS       CapsuleDataPtr64;
+  EFI_PHYSICAL_ADDRESS       *CapsuleDataPtr64;
   UINT16                     *BootNext;
   CHAR16                     BootName[20];
   UINT8                      *BootOption;
@@ -710,7 +711,7 @@ DumpProvisionedData (
     Status = GetVariable2 (
               CapsuleVarName,
               &gEfiCapsuleVendorGuid,
-              (VOID *) &CapsuleDataPtr64,
+              (VOID **) &CapsuleDataPtr64,
               NULL
               );
     if (EFI_ERROR(Status)) {
@@ -719,9 +720,8 @@ DumpProvisionedData (
       }
       break;
     } else {
-      Index ++;
-      Print (L"CapsuleUpdateData%d:\n", Index);
-      DumpBlockDescriptors ((EFI_CAPSULE_BLOCK_DESCRIPTOR*) (UINTN) CapsuleDataPtr64);
+      Print (L"CapsuleUpdateData%d:\n", Index ++);
+      DumpBlockDescriptors ((EFI_CAPSULE_BLOCK_DESCRIPTOR*) (UINTN) *CapsuleDataPtr64);
     }
   }
 
