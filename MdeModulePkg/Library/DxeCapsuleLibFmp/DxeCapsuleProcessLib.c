@@ -184,7 +184,7 @@ InitCapsulePtr (
     for (CapsuleOnDiskIndex = 0; CapsuleOnDiskIndex < CapsuleOnDiskBufNum; CapsuleOnDiskIndex++) {
       mCapsulePtr [Index++] = CapsuleOnDiskBuf[CapsuleOnDiskIndex].ImageAddress;
     }
-    if (CapsuleOnDiskBufNum != 0) {
+    if (CapsuleOnDiskBuf != NULL) {
       FreePool(CapsuleOnDiskBuf);
     }
   }

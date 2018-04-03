@@ -719,6 +719,7 @@ GetFileImageInAlphabetFromDir(
     Size = (UINTN)FileInfo->FileSize;
     TempFilePtrBuf[FileCount].ImageAddress = AllocateZeroPool(Size);
     if (TempFilePtrBuf[FileCount].ImageAddress == NULL) {
+      DEBUG((DEBUG_ERROR, "Fail to allocate memory for capsule. Stop processing the rest.\n"));
       break;
     }
 
@@ -756,6 +757,14 @@ GetFileImageInAlphabetFromDir(
     FileCount++;
   }
 
+  
+  DEBUG_CODE (
+    for (Link = FileInfoList.ForwardLink; Link != &FileInfoList; Link = Link->ForwardLink) {
+      FileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
+      FileInfo      = FileInfoEntry->FileInfo;
+      DEBUG((DEBUG_INFO, "Successfully read capsule file %s from disk.\n", FileInfo->FileName));
+    }
+    );
 
 EXIT:
 
@@ -950,13 +959,13 @@ CodLibGetAllCapsuleOnDisk(
              CapsulePtr,
              CapsuleNum
              );
-  DEBUG((DEBUG_INFO, "GetFileImageInAlphabetFromDir status %x!\n", Status));
+  DEBUG((DEBUG_INFO, "GetFileImageInAlphabetFromDir status %x\n", Status));
   
   //
   // Always remove file to avoid deadloop in capsule process
   //
   Status = RemoveFileFromDir(FileDir, EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE);
-  DEBUG((DEBUG_INFO, "RemoveFileFromDir status %x!\n", Status));
+  DEBUG((DEBUG_INFO, "RemoveFileFromDir status %x\n", Status));
 
 EXIT:
 
