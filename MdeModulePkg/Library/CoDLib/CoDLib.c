@@ -240,7 +240,7 @@ GetEfiSysPartitionFromActiveBootOption(
   LIST_ENTRY                   *Link;
   EFI_DEVICE_PATH_PROTOCOL     *DevicePath;
   EFI_DEVICE_PATH_PROTOCOL     *TempDevicePath;
-  HARDDRIVE_DEVICE_PATH        *Hd;
+//  HARDDRIVE_DEVICE_PATH        *Hd;
   EFI_HANDLE                   ImageHandle;
   EFI_HANDLE                   Handle;
 
@@ -315,6 +315,7 @@ GetEfiSysPartitionFromActiveBootOption(
       gBS->UnloadImage(ImageHandle);
     }
 
+#if 0
     //
     // Check if the device path contains GPT node 
     //
@@ -347,6 +348,21 @@ GetEfiSysPartitionFromActiveBootOption(
         }
       }
     }
+#else
+    //
+    // Search for EFI system partition protocol on full device path in Boot Option 
+    //
+    Status = gBS->LocateDevicePath (&gEfiSimpleFileSystemProtocolGuid, &DevicePath, &Handle);
+    if (!EFI_ERROR(Status)) {
+      Status = gBS->HandleProtocol(Handle, &gEfiSimpleFileSystemProtocolGuid, Fs);
+      if (!EFI_ERROR(Status)) {
+        break;
+      }
+    }
+
+#endif
+
+
   }
 
   //
@@ -417,6 +433,7 @@ GetFileInfoListInAlphabetFromDir(
   UINTN             ListedSubStrLen;
   INTN              SubStrCmpResult;
 
+  Status                  = EFI_SUCCESS;
   NewFileName             = NULL;
   ListedFileName          = NULL;
   NewFileNameExtension    = NULL;
@@ -431,7 +448,7 @@ GetFileInfoListInAlphabetFromDir(
   TempNewSubStr           = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
   TempListedSubStr        = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
 
-  if (NewFileName == NULL || NewFileNameExtension == NULL || TempNewSubStr == NULL || TempListedSubStr == NULL ) {
+  if (TempNewSubStr == NULL || TempListedSubStr == NULL ) {
     Status = EFI_OUT_OF_RESOURCES;
     goto EXIT;
   }
@@ -455,10 +472,11 @@ GetFileInfoListInAlphabetFromDir(
       goto EXIT;
     }
     NewFileInfoEntry->Signature = FILE_INFO_SIGNATURE;
-    NewFileInfoEntry->FileInfo  = AllocateCopyPool(sizeof(EFI_FILE_INFO), FileInfo);
+    NewFileInfoEntry->FileInfo  = AllocateCopyPool(FileInfo->Size, FileInfo);
     if (NewFileInfoEntry->FileInfo == NULL) {
       FreePool(NewFileInfoEntry);
       Status = EFI_OUT_OF_RESOURCES;
+      goto EXIT;
     }
 
     NewFileInfoEntry->FnFirstPart  = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
@@ -605,6 +623,7 @@ EXIT:
       FreePool(TempFileInfoEntry->FnSecondPart);
       FreePool(TempFileInfoEntry);
     }
+    *FileNum = 0;
   }
 
   return Status;
@@ -660,7 +679,6 @@ GetFileImageInAlphabetFromDir(
              );
   if (EFI_ERROR(Status)) {
     DEBUG ((EFI_D_ERROR, "GetFileInfoListInAlphabetFromDir Failed!\n"));
-    FileCount = 0;
     goto EXIT;
   }
 
@@ -749,6 +767,10 @@ EXIT:
     RemoveEntryList(Link);
 
     FileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
+
+    FreePool(FileInfoEntry->FileInfo);
+    FreePool(FileInfoEntry->FnFirstPart);
+    FreePool(FileInfoEntry->FnSecondPart);
     FreePool(FileInfoEntry);
   }
 
@@ -793,7 +815,6 @@ RemoveFileFromDir(
              );
   if (EFI_ERROR(Status)) {
     DEBUG ((EFI_D_ERROR, "GetFileInfoListInAlphabetFromDir Failed!\n"));
-    FileCount = 0;
     goto EXIT;
   }
 
@@ -915,6 +936,7 @@ CodLibGetAllCapsuleOnDisk(
                       0
                       );
   if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR, "CodLibGetAllCapsuleOnDisk fail to open RootDir!\n"));
     goto EXIT;
   }
 
@@ -928,8 +950,13 @@ CodLibGetAllCapsuleOnDisk(
              CapsulePtr,
              CapsuleNum
              );
-
-  RemoveFileFromDir(FileDir, EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE);
+  DEBUG((DEBUG_INFO, "GetFileImageInAlphabetFromDir status %x!\n", Status));
+  
+  //
+  // Always remove file to avoid deadloop in capsule process
+  //
+  Status = RemoveFileFromDir(FileDir, EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE);
+  DEBUG((DEBUG_INFO, "RemoveFileFromDir status %x!\n", Status));
 
 EXIT:
 
