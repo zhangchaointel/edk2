@@ -138,7 +138,7 @@ InitCapsulePtr (
   // Find all capsule images from disk
   //
   if (PcdGetBool(PcdCapsuleOnDiskSupport) && CodLibCheckCapsuleOnDiskFlag()) {
-    Status = CodLibGetAllCapsuleOnDisk(&CapsuleOnDiskBuf, &CapsuleOnDiskBufNum);
+    Status = CodLibGetAllCapsuleOnDisk(10, &CapsuleOnDiskBuf, &CapsuleOnDiskBufNum);
 
     DEBUG ((DEBUG_INFO, "CodLibGetAllCapsuleOnDisk Status - 0x%x\n", Status));
     CoDLibClearCapsuleOnDiskFlag();

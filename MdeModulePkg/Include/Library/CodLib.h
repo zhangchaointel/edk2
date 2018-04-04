@@ -48,6 +48,7 @@ CodLibCheckCapsuleOnDiskFlag(
 **/
 EFI_STATUS  
 CodLibGetAllCapsuleOnDisk(
+  IN  UINTN         MaxRetryCount,
   OUT IMAGE_INFO    **CapsulePtr,
   OUT UINTN         *CapsuleNum
   );

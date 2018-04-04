@@ -229,8 +229,9 @@ GetDefaultActiveBootOptionList(
 **/
 EFI_STATUS 
 GetEfiSysPartitionFromActiveBootOption(
-  IN  LIST_ENTRY                      *ActiveBootLists, OPTIONAL
-  OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL **Fs
+  IN  UINTN                            MaxTryCount,
+  IN  LIST_ENTRY                       *ActiveBootLists, OPTIONAL
+  OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs
   )
 {
   EFI_STATUS                   Status;
@@ -243,6 +244,7 @@ GetEfiSysPartitionFromActiveBootOption(
 //  HARDDRIVE_DEVICE_PATH        *Hd;
   EFI_HANDLE                   ImageHandle;
   EFI_HANDLE                   Handle;
+  BOOLEAN                      ShortFormedDevPath;
 
   *Fs              = NULL;
   ImageHandle      = NULL;
@@ -305,10 +307,28 @@ GetEfiSysPartitionFromActiveBootOption(
     // device in platform then load the boot file on this full device path and get the
     // image handle.
     //
-    TempDevicePath = NULL;
-    ImageHandle    = BdsExpandUsbShortFormDevicePath (DevicePath, &TempDevicePath);
-    if (TempDevicePath != NULL) {
-      DevicePath = TempDevicePath;
+    if (BdsLibCheckUsbDevicePath(DevicePath, &ShortFormedDevPath)) {
+      while (MaxTryCount > 0) {
+        if (ShortFormedDevPath) {
+          TempDevicePath = NULL;
+          ImageHandle    = BdsExpandUsbShortFormDevicePath (DevicePath, &TempDevicePath);
+          if (TempDevicePath != NULL) {
+            DevicePath = TempDevicePath;
+            break;
+          }
+        } else {
+          Status = BdsLibConnectDevicePath(DevicePath);
+          if (!EFI_ERROR(Status)) {
+            break;
+          }
+        }
+
+        //
+        // Stall 100ms if connection failed to ensure USB stack is ready.
+        //
+        gBS->Stall(100000);
+        MaxTryCount --;
+      }
     }
 
     if(ImageHandle != NULL) {
@@ -914,6 +934,7 @@ CodLibCheckCapsuleOnDiskFlag(
 **/
 EFI_STATUS  
 CodLibGetAllCapsuleOnDisk(
+  IN  UINTN         MaxRetryCount,
   OUT IMAGE_INFO    **CapsulePtr,
   OUT UINTN         *CapsuleNum
   )
@@ -923,11 +944,12 @@ CodLibGetAllCapsuleOnDisk(
   EFI_FILE_HANDLE                  RootDir;
   EFI_FILE_HANDLE                  FileDir;
 
-  Fs      = NULL;
-  RootDir = NULL;
-  FileDir = NULL;
+  Fs          = NULL;
+  RootDir     = NULL;
+  FileDir     = NULL;
+  *CapsuleNum = 0;
 
-  Status = GetEfiSysPartitionFromActiveBootOption(NULL, &Fs);
+  Status = GetEfiSysPartitionFromActiveBootOption(MaxRetryCount, NULL, &Fs);
   if (EFI_ERROR(Status)) {
     return Status;
   }
