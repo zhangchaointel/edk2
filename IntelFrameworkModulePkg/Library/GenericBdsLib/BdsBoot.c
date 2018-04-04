@@ -2138,6 +2138,33 @@ BdsFindUsbDevice (
   return ImageHandle;
 }
 
+BOOLEAN
+BdsLibCheckUsbDevicePath(
+  IN  EFI_DEVICE_PATH_PROTOCOL   *DevicePath,
+  OUT BOOLEAN                    *IsShortFormed
+  )
+{
+  EFI_DEVICE_PATH_PROTOCOL  *TempDevicePath;
+
+  TempDevicePath      = DevicePath;
+  while (!IsDevicePathEnd (TempDevicePath)) {
+    if (DevicePathType (TempDevicePath) == MESSAGING_DEVICE_PATH) {
+      if (DevicePathSubType (TempDevicePath) == MSG_USB_CLASS_DP ||
+          DevicePathSubType (TempDevicePath) == MSG_USB_WWID_DP) {
+        *IsShortFormed = TRUE;
+        return TRUE;
+      } else if (DevicePathSubType (TempDevicePath) == MSG_USB_DP) {
+        *IsShortFormed = FALSE;
+        return TRUE;
+      }
+    }
+
+    TempDevicePath = NextDevicePathNode (TempDevicePath);
+  }
+
+  return FALSE;
+}
+
 /**
   Expand USB Class or USB WWID device path node to be full device path of a USB
   device in platform then load the boot file on this full device path and return the 
@@ -2178,6 +2205,9 @@ BdsExpandUsbShortFormDevicePath (
   ShortFormDevicePath = NULL;
   ImageHandle         = NULL;
   TempDevicePath      = DevicePath;
+  if (FullDevicePath != NULL) {
+    *FullDevicePath = NULL;
+  }
   while (!IsDevicePathEnd (TempDevicePath)) {
     if ((DevicePathType (TempDevicePath) == MESSAGING_DEVICE_PATH) &&
         ((DevicePathSubType (TempDevicePath) == MSG_USB_CLASS_DP) ||

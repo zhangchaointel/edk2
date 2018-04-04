@@ -108,6 +108,12 @@ BdsLibBootNext (
   VOID
   );
 
+BOOLEAN
+BdsLibCheckUsbDevicePath(
+  IN  EFI_DEVICE_PATH_PROTOCOL   *DevicePath,
+  OUT BOOLEAN                    *IsShortFormed
+  );
+
 /**
   Process the boot option according to the UEFI specification. The legacy boot option device path includes BBS_DEVICE_PATH.
 
