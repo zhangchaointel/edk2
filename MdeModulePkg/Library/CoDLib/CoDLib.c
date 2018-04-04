@@ -241,7 +241,7 @@ GetEfiSysPartitionFromActiveBootOption(
   LIST_ENTRY                   *Link;
   EFI_DEVICE_PATH_PROTOCOL     *DevicePath;
   EFI_DEVICE_PATH_PROTOCOL     *TempDevicePath;
-//  HARDDRIVE_DEVICE_PATH        *Hd;
+  HARDDRIVE_DEVICE_PATH        *Hd;
   EFI_HANDLE                   ImageHandle;
   EFI_HANDLE                   Handle;
   BOOLEAN                      ShortFormedDevPath;
@@ -335,7 +335,7 @@ GetEfiSysPartitionFromActiveBootOption(
       gBS->UnloadImage(ImageHandle);
     }
 
-#if 0
+#if 1
     //
     // Check if the device path contains GPT node 
     //
