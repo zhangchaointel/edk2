@@ -274,6 +274,18 @@ GetEfiSysPartitionFromActiveBootOption(
     BootOption = CR (Link, BDS_COMMON_OPTION, Link, BDS_LOAD_OPTION_SIGNATURE);
     DevicePath = BootOption->DevicePath;
 
+    DEBUG_CODE (
+      CHAR16 *DevicePathStr;
+
+      DevicePathStr = DevicePathToStr(DevicePath);
+      if (DevicePathStr != NULL){
+        DEBUG((DEBUG_INFO, "Try BootOption %s\n", DevicePathStr));
+        FreePool(DevicePathStr);
+      } else {
+        DEBUG((DEBUG_INFO, "DevicePathToStr failed\n"));
+      }
+    );
+
     //
     // Skip LOAD_OPTION_ACTIVE boot option &  BBS device path
     //
