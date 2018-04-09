@@ -3639,6 +3639,162 @@ BdsLibBootNext (
   @return  The bootable media handle. If the media on the DevicePath is not bootable, NULL will return.
 
 **/
+EFI_STATUS
+EFIAPI
+BdsLibGetSimpleFileSystemHandlesFromDevPath (
+  IN  EFI_DEVICE_PATH_PROTOCOL      *DevicePath,
+  OUT EFI_HANDLE                    **HandleBuf,
+  OUT UINTN                         *HandleNum
+  )
+{
+  EFI_STATUS                      Status;
+  EFI_TPL                         OldTpl;
+  EFI_DEVICE_PATH_PROTOCOL        *UpdatedDevicePath;
+  EFI_DEVICE_PATH_PROTOCOL        *DupDevicePath;
+  EFI_HANDLE                      Handle;
+  EFI_BLOCK_IO_PROTOCOL           *BlockIo;
+  VOID                            *Buffer;
+  EFI_DEVICE_PATH_PROTOCOL        *TempDevicePath;
+  UINTN                           Size;
+  UINTN                           TempSize;
+  EFI_HANDLE                      *SimpleFileSystemHandles;
+  UINTN                           NumberSimpleFileSystemHandles;
+  UINTN                           Index;
+
+  UpdatedDevicePath = DevicePath;
+
+  //
+  // Enter to critical section to protect the acquired BlockIo instance 
+  // from getting released due to the USB mass storage hotplug event
+  //
+  OldTpl = gBS->RaiseTPL (TPL_CALLBACK);
+
+  //
+  // Check whether the device is connected
+  //
+  Status = gBS->LocateDevicePath (&gEfiBlockIoProtocolGuid, &UpdatedDevicePath, &Handle);
+  if (EFI_ERROR (Status)) {
+    //
+    // Skip the case that the boot option point to a simple file protocol which does not consume block Io protocol,
+    //
+    Status = gBS->LocateDevicePath (&gEfiSimpleFileSystemProtocolGuid, &UpdatedDevicePath, &Handle);
+    if (EFI_ERROR (Status)) {
+      //
+      // Fail to find the proper BlockIo and simple file protocol, maybe because device not present,  we need to connect it firstly
+      //
+      UpdatedDevicePath = DevicePath;
+      Status            = gBS->LocateDevicePath (&gEfiDevicePathProtocolGuid, &UpdatedDevicePath, &Handle);
+      gBS->ConnectController (Handle, NULL, NULL, TRUE);
+    }
+  } else {
+    //
+    // For removable device boot option, its contained device path only point to the removable device handle, 
+    // should make sure all its children handles (its child partion or media handles) are created and connected. 
+    //
+    gBS->ConnectController (Handle, NULL, NULL, TRUE); 
+
+    //
+    // Get BlockIo protocol and check removable attribute
+    //
+    Status = gBS->HandleProtocol (Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
+    ASSERT_EFI_ERROR (Status);
+
+    //
+    // Issue a dummy read to the device to check for media change.
+    // When the removable media is changed, any Block IO read/write will
+    // cause the BlockIo protocol be reinstalled and EFI_MEDIA_CHANGED is
+    // returned. After the Block IO protocol is reinstalled, subsequent
+    // Block IO read/write will success.
+    //
+    Buffer = AllocatePool (BlockIo->Media->BlockSize);
+    if (Buffer != NULL) {
+      BlockIo->ReadBlocks (
+               BlockIo,
+               BlockIo->Media->MediaId,
+               0,
+               BlockIo->Media->BlockSize,
+               Buffer
+               );
+      FreePool(Buffer);
+    }
+  }
+
+  //
+  // Find all the handles with Simple File System protocol on this device path
+  //
+  DupDevicePath = DuplicateDevicePath (DevicePath);
+  ASSERT (DupDevicePath != NULL);
+
+  UpdatedDevicePath = DupDevicePath;
+  Status = gBS->LocateDevicePath (&gEfiDevicePathProtocolGuid, &UpdatedDevicePath, &Handle);
+  //
+  // if the resulting device path point to a usb node, and the usb node is a dummy node, should only let device path only point to the previous Pci node
+  // Acpi()/Pci()/Usb() --> Acpi()/Pci()
+  //
+  if ((DevicePathType (UpdatedDevicePath) == MESSAGING_DEVICE_PATH) &&
+      (DevicePathSubType (UpdatedDevicePath) == MSG_USB_DP)) {
+    //
+    // Remove the usb node, let the device path only point to PCI node
+    //
+    SetDevicePathEndNode (UpdatedDevicePath);
+    UpdatedDevicePath = DupDevicePath;
+  } else {
+    UpdatedDevicePath = DevicePath;
+  }
+
+  //
+  // Get the device path size of boot option
+  //
+  Size = GetDevicePathSize(UpdatedDevicePath) - sizeof (EFI_DEVICE_PATH_PROTOCOL); // minus the end node
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol,
+                  &gEfiSimpleFileSystemProtocolGuid,
+                  NULL,
+                  &NumberSimpleFileSystemHandles,
+                  &SimpleFileSystemHandles
+                  );
+  if (EFI_ERROR(Status)) {
+    return Status;
+  }
+
+  for (Index = 0; Index < NumberSimpleFileSystemHandles; Index++) {
+    //
+    // Get the device path size of SimpleFileSystem handle
+    //
+    TempDevicePath = DevicePathFromHandle (SimpleFileSystemHandles[Index]);
+    TempSize       = GetDevicePathSize (TempDevicePath)- sizeof (EFI_DEVICE_PATH_PROTOCOL); // minus the end node
+    //
+    // Check whether the device path of boot option is part of the  SimpleFileSystem handle's device path
+    //
+    if (Size > TempSize || CompareMem (TempDevicePath, UpdatedDevicePath, Size) != 0) {
+      SimpleFileSystemHandles[Index] = NULL;
+    }
+  }
+
+  //
+  // Detect the the active Efi System Partition
+  //
+  gBS->RestoreTPL (OldTpl);
+
+  *HandleBuf = SimpleFileSystemHandles;
+  *HandleNum = NumberSimpleFileSystemHandles;
+  
+  FreePool(DupDevicePath);
+
+  return EFI_SUCCESS;
+}
+
+/**
+  Return the bootable media handle.
+  First, check the device is connected
+  Second, check whether the device path point to a device which support SimpleFileSystemProtocol,
+  Third, detect the the default boot file in the Media, and return the removable Media handle.
+
+  @param  DevicePath  Device Path to a  bootable device
+
+  @return  The bootable media handle. If the media on the DevicePath is not bootable, NULL will return.
+
+**/
 EFI_HANDLE
 EFIAPI
 BdsLibGetBootableHandle (

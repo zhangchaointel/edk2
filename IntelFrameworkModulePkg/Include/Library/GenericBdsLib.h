@@ -912,6 +912,14 @@ BdsExpandUsbShortFormDevicePath (
   OUT EFI_DEVICE_PATH_PROTOCOL      **FullDevicePath OPTIONAL
   );
 
+EFI_STATUS
+EFIAPI
+BdsLibGetSimpleFileSystemHandlesFromDevPath (
+  IN  EFI_DEVICE_PATH_PROTOCOL      *DevicePath,
+  OUT EFI_HANDLE                    **HandleBuf,
+  OUT UINTN                         *HandleNum
+  );
+
 /**
   Return the bootable media handle.
   First, check whether the device is connected.
