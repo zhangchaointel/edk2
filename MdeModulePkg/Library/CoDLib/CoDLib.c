@@ -213,7 +213,56 @@ GetDefaultActiveBootOptionList(
   return BdsLibBuildOptionFromVar (BootLists, L"BootOrder");
 }
 
+/*
+  Check if Active Efi System Partition within GPT is in the device path
 
+*/
+EFI_STATUS
+GetEfiSysPartitionFromDevPath(
+  IN EFI_DEVICE_PATH_PROTOCOL         *DevicePath,
+  OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL **Fs
+  )
+{
+  EFI_STATUS                 Status;
+  EFI_DEVICE_PATH_PROTOCOL	 *TempDevicePath;
+  HARDDRIVE_DEVICE_PATH      *Hd;
+  EFI_HANDLE                 Handle;
+
+  //
+  // Check if the device path contains GPT node 
+  //
+  TempDevicePath = DevicePath;
+  while (!IsDevicePathEnd (TempDevicePath)) {
+    if ((DevicePathType (TempDevicePath) == MEDIA_DEVICE_PATH) &&
+       (DevicePathSubType (TempDevicePath) == MEDIA_HARDDRIVE_DP)) {
+       Hd = (HARDDRIVE_DEVICE_PATH *)TempDevicePath;
+       if (Hd->MBRType == MBR_TYPE_EFI_PARTITION_TABLE_HEADER) {
+         break;
+       }
+    }
+    TempDevicePath = NextDevicePathNode (TempDevicePath);
+   }
+
+   if (!IsDevicePathEnd (TempDevicePath)) {
+
+     //
+     // Search for EFI system partition protocol on full device path in Boot Option 
+     //
+     Status = gBS->LocateDevicePath (&gEfiPartTypeSystemPartGuid, &DevicePath, &Handle);
+
+     //
+     // Search for simple file system on this handler
+     //
+     if (!EFI_ERROR(Status)) {
+       Status = gBS->HandleProtocol(Handle, &gEfiSimpleFileSystemProtocolGuid, Fs);
+       if (!EFI_ERROR(Status)) {
+         return EFI_SUCCESS;
+       }
+     }
+   }
+
+   return EFI_NOT_FOUND;
+}
 /**
 
   This routine is called to get Simple File System protocol on the first EFI system partition found in  
@@ -241,10 +290,11 @@ GetEfiSysPartitionFromActiveBootOption(
   LIST_ENTRY                   *Link;
   EFI_DEVICE_PATH_PROTOCOL     *DevicePath;
   EFI_DEVICE_PATH_PROTOCOL     *TempDevicePath;
-  HARDDRIVE_DEVICE_PATH        *Hd;
   EFI_HANDLE                   ImageHandle;
-  EFI_HANDLE                   Handle;
+  EFI_HANDLE                   *FsHandleBuf;
   BOOLEAN                      ShortFormedDevPath;
+  UINTN                        FsHandleNum;
+  UINTN                        Index;
 
   *Fs              = NULL;
   ImageHandle      = NULL;
@@ -348,38 +398,30 @@ GetEfiSysPartitionFromActiveBootOption(
     }
 
 #if 1
-    //
-    // Check if the device path contains GPT node 
-    //
-    TempDevicePath = DevicePath;
-    while (!IsDevicePathEnd (TempDevicePath)) {
-      if ((DevicePathType (TempDevicePath) == MEDIA_DEVICE_PATH) &&
-          (DevicePathSubType (TempDevicePath) == MEDIA_HARDDRIVE_DP)) {
-        Hd = (HARDDRIVE_DEVICE_PATH *)TempDevicePath;
-        if (Hd->MBRType == MBR_TYPE_EFI_PARTITION_TABLE_HEADER) {
-          break;
-        }
-      }
-      TempDevicePath = NextDevicePathNode (TempDevicePath);
-    }
-
-    if (!IsDevicePathEnd (TempDevicePath)) {
- 
+    Status = GetEfiSysPartitionFromDevPath(DevicePath, Fs);
+    if (EFI_ERROR(Status)) {
       //
-      // Search for EFI system partition protocol on full device path in Boot Option 
+      // The device may not longer enough to produce simple file system. Try to recursive connect
+      // to check 
       //
-      Status = gBS->LocateDevicePath (&gEfiPartTypeSystemPartGuid, &DevicePath, &Handle);
-
-      //
-      // Search for simple file system on this handler
-      //
+      Status = BdsLibGetSimpleFileSystemHandlesFromDevPath (
+                 DevicePath,
+                 &FsHandleBuf,
+                 &FsHandleNum
+                 );
       if (!EFI_ERROR(Status)) {
-        Status = gBS->HandleProtocol(Handle, &gEfiSimpleFileSystemProtocolGuid, Fs);
-        if (!EFI_ERROR(Status)) {
-          break;
+        for (Index = 0; Index < FsHandleNum; Index++) {
+          if (FsHandleBuf[Index] != NULL) {
+            gBS->HandleProtocol(FsHandleBuf[Index], &gEfiDevicePathProtocolGuid, &DevicePath);
+            Status = GetEfiSysPartitionFromDevPath(DevicePath, Fs);
+            if (!EFI_ERROR(Status)) {
+              break;
+            }
+          }
         }
       }
     }
+
 #else
     //
     // Search for EFI system partition protocol on full device path in Boot Option 
@@ -403,6 +445,19 @@ GetEfiSysPartitionFromActiveBootOption(
   if (*Fs == NULL) {
     Status = EFI_NOT_FOUND;
   }
+
+  DEBUG_CODE (
+    CHAR16 *DevicePathStr1;
+    if (*Fs != NULL) {
+      DevicePathStr1 = DevicePathToStr(DevicePath);
+      if (DevicePathStr1 != NULL){
+        DEBUG((DEBUG_INFO, "Found Active EFI System Partion on %s\n", DevicePathStr1));
+        FreePool(DevicePathStr1);
+      } 
+    } else {
+      DEBUG((DEBUG_INFO, "Failed to found Active EFI System Partion\n"));
+    }
+  );
 
   //
   // Free all BootOption entry on list
