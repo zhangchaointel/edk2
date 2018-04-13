@@ -65,6 +65,23 @@ WriteFileFromBuffer (
   );
 
 /**
+Get SimpleFileSystem handle from device path
+
+@param[in]  DevicePath     The device path
+@param[out] Handle         The file system handle
+
+@retval EFI_SUCCESS    Get handle successfully
+@retval EFI_NOT_FOUND  No valid handle found
+@retval others         Get handle failed
+**/
+EFI_STATUS
+EFIAPI
+GetSimpleFileSystemHandleFromDevPath (
+  IN  EFI_DEVICE_PATH_PROTOCOL      *DevicePath,
+  OUT EFI_HANDLE                    *Handle
+  );
+
+/**
   Dump UX capsule information.
 
   @param[in] CapsuleHeader      The UX capsule header
@@ -577,7 +594,7 @@ DumpCapsuleFromDisk (
   UINTN                                         FileSize;
   VOID                                          *FileBuffer;
 
-  Status = gBS->LocateDevicePath (&gEfiSimpleFileSystemProtocolGuid, &DevicePath, &Handle);
+  Status = GetSimpleFileSystemHandleFromDevPath (DevicePath, &Handle);
   if (EFI_ERROR(Status)) {
     return EFI_NOT_FOUND;
   }

@@ -27,10 +27,77 @@
 #include <Library/FileHandleLib.h>
 
 /**
+Get SimpleFileSystem handle from device path
+
+@param[in]  DevicePath     The device path
+@param[out] Handle         The file system handle
+
+@retval EFI_SUCCESS    Get handle successfully
+@retval EFI_NOT_FOUND  No valid handle found
+@retval others         Get handle failed
+**/
+EFI_STATUS
+EFIAPI
+GetSimpleFileSystemHandleFromDevPath (
+  IN  EFI_DEVICE_PATH_PROTOCOL      *DevicePath,
+  OUT EFI_HANDLE                    *Handle
+  ) 
+{
+  EFI_STATUS                        Status;
+  EFI_HANDLE                        *SimpleFileSystemHandles;
+  UINTN                             NumberSimpleFileSystemHandles;
+  UINTN                             Index;
+  UINTN                             Size;
+  UINTN                             TempSize;
+  EFI_DEVICE_PATH_PROTOCOL          *TmpDevicePath;
+
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol,
+                  &gEfiSimpleFileSystemProtocolGuid,
+                  NULL,
+                  &NumberSimpleFileSystemHandles,
+                  &SimpleFileSystemHandles
+                  );
+  if (EFI_ERROR(Status)) {
+    return Status;
+  }
+
+  //
+  // Get the device path size of boot option
+  //
+  Size = GetDevicePathSize(DevicePath) - sizeof(EFI_DEVICE_PATH_PROTOCOL);
+
+  for (Index = 0; Index < NumberSimpleFileSystemHandles; Index ++) {
+    //
+    // Get the device path size of SimpleFileSystem handle
+    //
+    TmpDevicePath = DevicePathFromHandle(SimpleFileSystemHandles[Index]);
+    TempSize = GetDevicePathSize(TmpDevicePath) - sizeof(EFI_DEVICE_PATH_PROTOCOL);
+
+    //
+    // Check whether the device path of boot option is part of the  SimpleFileSystem handle's device path
+    //
+    if (Size <= TempSize && CompareMem(TmpDevicePath, DevicePath, Size) == 0) {
+      *Handle = SimpleFileSystemHandles[Index];
+      break;
+    } else {
+      TmpDevicePath = NULL;
+    }
+  }
+
+  if (*Handle != NULL) {
+    return EFI_SUCCESS;
+  } else {
+    return EFI_NOT_FOUND;
+  }
+}
+
+/**
 Get a valid SimpleFileSystem handle from Boot device
 
-@param[out] BootNext       The value of BootNext Variable
-@param[out] Handle         The file system handle
+@param[out] BootNext        The value of BootNext Variable
+@param[out] Handle          The file system handle
+@param[out] UpdateBootNext  The flag to indicate whether update BootNext Variable
 
 @retval EFI_SUCCESS    Get handle successfully
 @retval EFI_NOT_FOUND  No valid handle found
@@ -40,7 +107,8 @@ EFI_STATUS
 EFIAPI
 GetUpdateHandle(
   OUT UINT16                       *BootNext,
-  OUT EFI_HANDLE                   **Handle
+  OUT EFI_HANDLE                   *Handle,
+  OUT BOOLEAN                      *UpdateBootNext
 )
 {
   UINTN                           BufferSize;
@@ -52,14 +120,7 @@ GetUpdateHandle(
   CHAR16                          BootName[20];
   UINTN                           Index;
   EFI_DEVICE_PATH_PROTOCOL        *DevicePath;
-  EFI_DEVICE_PATH_PROTOCOL        *TmpDevicePath;
   CHAR16                          *DevPathString;
-  UINTN                           Size;
-  UINTN                           TempSize;
-  EFI_HANDLE                      *SimpleFileSystemHandles;
-  UINTN                           NumberSimpleFileSystemHandles;
-  UINTN                           Index2;
-  EFI_HANDLE                      TempHandle;
   UINT16                          *TempValue;
 
   BootOrderBuffer = NULL;
@@ -89,23 +150,14 @@ GetUpdateHandle(
       TmpPtr += sizeof(UINT32); //device path size
       TmpPtr += sizeof(UINT16); //description string
       TmpPtr += StrSize((CHAR16 *)TmpPtr); //description string size
-      DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)TmpPtr;  
-      Status = gBS->LocateDevicePath (&gEfiSimpleFileSystemProtocolGuid, &DevicePath, &TempHandle);
+      DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)TmpPtr;
+      Status = GetSimpleFileSystemHandleFromDevPath (DevicePath, Handle);
       if (!EFI_ERROR(Status)) {
-        *Handle = TempHandle;
-        *BootNext = *TempValue;
+        *UpdateBootNext = FALSE;
         return EFI_SUCCESS;
       }
     }
   }
-
-  gBS->LocateHandleBuffer(
-    ByProtocol,
-    &gEfiSimpleFileSystemProtocolGuid,
-    NULL,
-    &NumberSimpleFileSystemHandles,
-    &SimpleFileSystemHandles
-  );
 
   Status = GetVariable2(
              L"BootOrder",
@@ -157,36 +209,11 @@ GetUpdateHandle(
     DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)TmpPtr;
     DevPathString = ConvertDevicePathToText(DevicePath, TRUE, FALSE); //remove
 
-    //
-    // Have a Device Path, now attempt to locate SFS
-    // 
-    Size = GetDevicePathSize(DevicePath) - sizeof(EFI_DEVICE_PATH_PROTOCOL); // minus the end node
-
-    for (Index2 = 0; Index2 < NumberSimpleFileSystemHandles; Index2++) {
-      //
-      // Get the device path size of SimpleFileSystem handle
-      //
-      TmpDevicePath = DevicePathFromHandle(SimpleFileSystemHandles[Index2]);
-      DevPathString = ConvertDevicePathToText(TmpDevicePath, TRUE, FALSE); //remove
-      TempSize = GetDevicePathSize(TmpDevicePath) - sizeof(EFI_DEVICE_PATH_PROTOCOL); // minus the end node
-
-      //
-      // Check whether the device path of boot option is part of the  SimpleFileSystem handle's device path
-      //
-      if (Size <= TempSize && CompareMem(TmpDevicePath, DevicePath, Size) == 0) {
-        *BootNext = *((UINT16 *)BootOrderBuffer + Index);
-        *Handle = SimpleFileSystemHandles[Index2];
-        break;
-      } else {
-        TmpDevicePath = NULL;
-      }
-
-    }
-    if (*Handle != NULL) {
-      Status = EFI_SUCCESS;
+    Status = GetSimpleFileSystemHandleFromDevPath (DevicePath, Handle);
+    if (!EFI_ERROR (Status)) {
+      *UpdateBootNext = TRUE;
+      *BootNext = *((UINT16 *)BootOrderBuffer + Index);
       break;
-    } else {
-      Status = EFI_NOT_FOUND;
     }
   }
 
@@ -394,14 +421,15 @@ ProcessCapsuleOnDisk (
 {
   EFI_STATUS                    Status;
   UINT16                        BootNext;
-  EFI_HANDLE                    *Handle;
+  EFI_HANDLE                    Handle;
+  BOOLEAN                       UpdateBootNext;
 
   //
   // Get a valid file system from boot path
   //
   Handle = NULL;
 
-  Status = GetUpdateHandle(&BootNext, &Handle);
+  Status = GetUpdateHandle(&BootNext, &Handle, &UpdateBootNext);
   if (EFI_ERROR(Status)) {
     Print(L"CapsuleApp: cannot find a valid file system on boot devies. Status = %r\n", Status);
     return Status;
@@ -425,18 +453,19 @@ ProcessCapsuleOnDisk (
     return Status;
   }
 
-  Status = gRT->SetVariable (
-    L"BootNext",
-    &gEfiGlobalVariableGuid,
-    EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
-    sizeof(UINT16),
-    &BootNext
-    );
-  if (EFI_ERROR(Status)){
-    Print(L"CapsuleApp: unable to set BootNext variable.\n");
-    return Status;
+  if (UpdateBootNext) {
+    Status = gRT->SetVariable (
+      L"BootNext",
+      &gEfiGlobalVariableGuid,
+      EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+      sizeof(UINT16),
+      &BootNext
+      );
+    if (EFI_ERROR(Status)){
+      Print(L"CapsuleApp: unable to set BootNext variable.\n");
+      return Status;
+    }
   }
 
   return EFI_SUCCESS;
-
 }
