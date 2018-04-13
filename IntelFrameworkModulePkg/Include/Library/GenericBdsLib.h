@@ -19,6 +19,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #define _GENERIC_BDS_LIB_H_
 
 #include <Protocol/UserManager.h>
+#include <Protocol/UsbIo.h>
 
 ///
 /// Constants which are variable names used to access variables.
@@ -106,6 +107,18 @@ VOID
 EFIAPI
 BdsLibBootNext (
   VOID
+  );
+
+BOOLEAN
+BdsMatchUsbWwid (
+  IN EFI_USB_IO_PROTOCOL        *UsbIo,
+  IN USB_WWID_DEVICE_PATH       *UsbWwid
+  );
+
+BOOLEAN
+BdsMatchUsbClass (
+  IN EFI_USB_IO_PROTOCOL        *UsbIo,
+  IN USB_CLASS_DEVICE_PATH      *UsbClass
   );
 
 BOOLEAN
