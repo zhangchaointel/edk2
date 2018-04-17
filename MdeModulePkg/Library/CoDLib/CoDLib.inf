@@ -49,6 +49,7 @@
   DxeServicesLib
   CapsuleLib
   GenericBdsLib
+  UefiBootManagerLib
 
 [Protocols]
   gEfiSimpleFileSystemProtocolGuid ## SOMETIMES_CONSUMES

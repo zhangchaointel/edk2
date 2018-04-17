@@ -435,6 +435,25 @@ EfiBootManagerGetBootManagerMenu (
   EFI_BOOT_MANAGER_LOAD_OPTION *BootOption
   );
 
+/**
+  Get the next possible full path pointing to the load option.
+  The routine doesn't guarantee the returned full path points to an existing
+  file, and it also doesn't guarantee the existing file is a valid load option.
+  BmGetNextLoadOptionBuffer() guarantees.
+
+  @param FilePath  The device path pointing to a load option.
+                   It could be a short-form device path.
+  @param FullPath  The full path returned by the routine in last call.
+                   Set to NULL in first call.
+
+  @return The next possible full path pointing to the load option.
+          Caller is responsible to free the memory.
+**/
+EFI_DEVICE_PATH_PROTOCOL *
+EfiBootManagerGetNextFullDevicePath (
+  IN  EFI_DEVICE_PATH_PROTOCOL          *FilePath,
+  IN  EFI_DEVICE_PATH_PROTOCOL          *FullPath
+  );
 
 /**
   Get the load option by its device path.
@@ -740,6 +759,7 @@ EfiBootManagerFreeDriverHealthInfo (
   EFI_BOOT_MANAGER_DRIVER_HEALTH_INFO  *DriverHealthInfo,
   UINTN                                Count
   );
+
 
 /**
   Process (load and execute) the load option.
