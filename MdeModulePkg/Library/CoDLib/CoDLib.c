@@ -26,7 +26,6 @@
 #include <Library/FileHandleLib.h>
 #include <Library/CapsuleLib.h>
 #include <Library/DevicePathLib.h>
-#include <Library/GenericBdsLib.h>
 #include <Library/PrintLib.h>
 #include <Library/CodLib.h>
 #include <Library/UefiBootManagerLib.h>
@@ -36,6 +35,29 @@
 #include <Guid/GlobalVariable.h>
 
 #include "InternalCoDLib.h"
+
+BOOLEAN
+CheckUsbDevicePath(
+  IN  EFI_DEVICE_PATH_PROTOCOL   *DevicePath
+  )
+{
+  EFI_DEVICE_PATH_PROTOCOL  *TempDevicePath;
+
+  TempDevicePath      = DevicePath;
+  while (!IsDevicePathEnd (TempDevicePath)) {
+    if (DevicePathType (TempDevicePath) == MESSAGING_DEVICE_PATH) {
+      if (DevicePathSubType (TempDevicePath) == MSG_USB_CLASS_DP ||
+          DevicePathSubType (TempDevicePath) == MSG_USB_WWID_DP ||
+          DevicePathSubType (TempDevicePath) == MSG_USB_DP) {
+        return TRUE;
+      }
+    }
+
+    TempDevicePath = NextDevicePathNode (TempDevicePath);
+  }
+
+  return FALSE;
+}
 
 /**
 
@@ -176,43 +198,87 @@ SplitFileNameExtension (
 
 **/
 EFI_STATUS
-GetDefaultActiveBootOptionList(
-  OUT LIST_ENTRY  *BootLists
+GetBootOptionInOrder(
+  OUT EFI_BOOT_MANAGER_LOAD_OPTION **OptionBuf,
+  OUT UINTN                        *OptionCount
   )
 {
-  UINTN     DataSize;
-  UINT16    *BootNext;
-  CHAR16    VariableName[20];
+  EFI_STATUS                   Status;
+  UINTN                        DataSize;
+  UINT16                       BootNext;
+  CHAR16                       BootOptionName[20];
+  EFI_BOOT_MANAGER_LOAD_OPTION *BootOrderOptionBuf;
+  UINTN                        BootOrderCount;
+  EFI_BOOT_MANAGER_LOAD_OPTION BootNextOptionEntry;
+  UINTN                        BootNextCount;
+  EFI_BOOT_MANAGER_LOAD_OPTION *TempBuf;
 
-  BootNext = NULL;
-
-  InitializeListHead (BootLists);
+  BootOrderOptionBuf  = NULL;
+  TempBuf             = NULL;
+  BootNextCount       = 0;
+  BootOrderCount      = 0;
+  *OptionBuf          = NULL;
+  *OptionCount        = 0;
 
   //
-  // Check if we have the boot next option
+  // First Get BootOption from "BootNext"
   //
-  BootNext = BdsLibGetVariableAndSize (
-               L"BootNext",
-               &gEfiGlobalVariableGuid,
-               &DataSize
-               );
-  if (BootNext != NULL && DataSize == sizeof(UINT16)) {
+  DataSize = sizeof(BootNext);
+  Status = gRT->GetVariable (
+                  L"BootNext",
+                  &gEfiGlobalVariableGuid,
+                  NULL,
+                  &DataSize,
+                  (VOID *)&BootNext
+                  );
+  //
+  // BootNext variable is a single UINT16
+  //
+  if (!EFI_ERROR(Status) && DataSize == sizeof(UINT16)) {
     //
     // Add the boot next boot option
     //
-    UnicodeSPrint (VariableName, sizeof (VariableName), L"Boot%04x", *BootNext);
+    UnicodeSPrint (BootOptionName, sizeof (BootOptionName), L"Boot%04x", BootNext);
+    ZeroMem(&BootNextOptionEntry, sizeof(EFI_BOOT_MANAGER_LOAD_OPTION));
+    Status = EfiBootManagerVariableToLoadOption (BootOptionName, &BootNextOptionEntry);
 
-    BdsLibVariableToOption (BootLists, VariableName);
-
-    if (BootNext != NULL) {
-      FreePool(BootNext);
+    if (!EFI_ERROR(Status)) {
+      BootNextCount = 1;
     }
   }
 
   //
-  // Parse the boot order to get boot option
+  // Second get BootOption from "BootOrder"
   //
-  return BdsLibBuildOptionFromVar (BootLists, L"BootOrder");
+  BootOrderOptionBuf = EfiBootManagerGetLoadOptions (&BootOrderCount, LoadOptionTypeBoot);
+  if (BootNextCount == 0 && BootOrderCount == 0) {
+    return EFI_NOT_FOUND;
+  }
+
+  //
+  // At least one BootOption is found
+  //
+
+  TempBuf = AllocatePool(sizeof(EFI_BOOT_MANAGER_LOAD_OPTION) * (BootNextCount + BootOrderCount));
+  if (TempBuf != NULL) {
+    if (BootNextCount == 1) {
+      CopyMem(TempBuf, &BootNextOptionEntry, sizeof(EFI_BOOT_MANAGER_LOAD_OPTION));
+    }
+
+    if (BootOrderCount > 0) {
+      CopyMem(TempBuf + 1, BootOrderOptionBuf, sizeof(EFI_BOOT_MANAGER_LOAD_OPTION) * BootOrderCount);
+    }
+
+    *OptionBuf   = TempBuf;
+    *OptionCount = BootNextCount + BootOrderCount;
+    Status = EFI_SUCCESS;
+  } else {
+    Status = EFI_OUT_OF_RESOURCES;
+  }
+
+  FreePool(BootOrderOptionBuf);
+
+  return Status;
 }
 
 /*
@@ -281,31 +347,23 @@ GetEfiSysPartitionFromDevPath(
 EFI_STATUS 
 GetEfiSysPartitionFromActiveBootOption(
   IN  UINTN                            MaxTryCount,
-  IN  LIST_ENTRY                       *ActiveBootLists, OPTIONAL
   OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs
   )
 {
   EFI_STATUS                   Status;
-  BDS_COMMON_OPTION            *BootOption;
-  LIST_ENTRY                   DefaultBootLists;
-  LIST_ENTRY                   *BootLists;
-  LIST_ENTRY                   *Link;
+  EFI_BOOT_MANAGER_LOAD_OPTION *BootOptionBuf;
+  UINTN                        BootOptionNum;
+  UINTN                        Index;
   EFI_DEVICE_PATH_PROTOCOL     *DevicePath;
   EFI_DEVICE_PATH_PROTOCOL     *CurFullPath;
   EFI_DEVICE_PATH_PROTOCOL     *PreFullPath;
-  BOOLEAN                      ShortFormedDevPath;
 
   *Fs = NULL;
 
-  if (ActiveBootLists == NULL) {
-    Status = GetDefaultActiveBootOptionList(&DefaultBootLists);
-    if (EFI_ERROR(Status)) {
-      DEBUG ((EFI_D_ERROR, "GetDefaultActiveBootOptionList Failed %x!\n", Status));
-      return Status;
-    }
-    BootLists = &DefaultBootLists;
-  } else {
-    BootLists = ActiveBootLists;
+  Status = GetBootOptionInOrder(&BootOptionBuf, &BootOptionNum);
+  if (EFI_ERROR(Status)) {
+    DEBUG ((EFI_D_ERROR, "GetBootOptionInOrder Failed %x! No BootOption available for connection\n", Status));
+    return Status;
   }
 
   //
@@ -314,17 +372,16 @@ GetEfiSysPartitionFromActiveBootOption(
   //  2. expend short/plug in devicepath
   //  3. LoadImage
   //
-  for (Link = BootLists->ForwardLink; Link != BootLists; Link = Link->ForwardLink) {
+  for (Index = 0; Index < BootOptionNum; Index++) {
     //
     // Get the boot option from the link list
     //
-    BootOption  = CR (Link, BDS_COMMON_OPTION, Link, BDS_LOAD_OPTION_SIGNATURE);
-    DevicePath  = BootOption->DevicePath;
+    DevicePath  = BootOptionBuf[Index].FilePath;
 
     //
-    // Skip LOAD_OPTION_ACTIVE boot option &  BBS device path
+    // Skip inactive or  legacy boot options
     //
-    if (!IS_LOAD_OPTION_TYPE (BootOption->Attribute, LOAD_OPTION_ACTIVE) ||
+    if ((BootOptionBuf[Index].Attributes & LOAD_OPTION_ACTIVE) == 0 ||
         DevicePathType (DevicePath) == BBS_DEVICE_PATH) {
       continue;
     }
@@ -332,7 +389,7 @@ GetEfiSysPartitionFromActiveBootOption(
     DEBUG_CODE (
       CHAR16 *DevicePathStr;
 
-      DevicePathStr = DevicePathToStr(DevicePath);
+      DevicePathStr = ConvertDevicePathToText(DevicePath, TRUE, TRUE);
       if (DevicePathStr != NULL){
         DEBUG((DEBUG_INFO, "Try BootOption %s\n", DevicePathStr));
         FreePool(DevicePathStr);
@@ -365,16 +422,16 @@ GetEfiSysPartitionFromActiveBootOption(
       // Make sure the boot option device path connected.
       // Only handle first device in boot option. Other optional device paths are described as OSV specific
       //
-      Status = BdsLibConnectDevicePath (CurFullPath);
+      Status = EfiBootManagerConnectDevicePath (CurFullPath, NULL);
 
       //
       // Expand USB Class or USB WWID device path node to be full device path of a USB
       // device in platform then load the boot file on this full device path and get the
       // image handle.
       //
-      if (EFI_ERROR(Status) && BdsLibCheckUsbDevicePath(CurFullPath, &ShortFormedDevPath)) {
+      if (EFI_ERROR(Status) && CheckUsbDevicePath(CurFullPath)) {
         while (MaxTryCount > 0) {
-          Status = BdsLibConnectDevicePath(CurFullPath);
+          Status = EfiBootManagerConnectDevicePath(CurFullPath, NULL);
           if (!EFI_ERROR(Status)) {
             break;
           }
@@ -392,6 +449,7 @@ GetEfiSysPartitionFromActiveBootOption(
       if (!EFI_ERROR(Status)) {
         Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
       }
+
 #else
     //
     // Search for EFI system partition protocol on full device path in Boot Option 
@@ -405,7 +463,7 @@ GetEfiSysPartitionFromActiveBootOption(
     }
 
 #endif
-    } while(!EFI_ERROR(Status));
+    } while(EFI_ERROR(Status));
 
   }
 
@@ -419,7 +477,7 @@ GetEfiSysPartitionFromActiveBootOption(
   DEBUG_CODE (
     CHAR16 *DevicePathStr1;
     if (*Fs != NULL) {
-      DevicePathStr1 = DevicePathToStr(DevicePath);
+      DevicePathStr1 = ConvertDevicePathToText(CurFullPath, TRUE, TRUE);
       if (DevicePathStr1 != NULL){
         DEBUG((DEBUG_INFO, "Found Active EFI System Partion on %s\n", DevicePathStr1));
         FreePool(DevicePathStr1);
@@ -429,22 +487,28 @@ GetEfiSysPartitionFromActiveBootOption(
     }
   );
 
-  //
-  // Free all BootOption entry on list
-  //
-  while(!IsListEmpty(&DefaultBootLists)) {
-    Link = DefaultBootLists.ForwardLink;
-    RemoveEntryList(Link);
-    //
-    // Get the boot option from the link list
-    //
-    BootOption = CR (Link, BDS_COMMON_OPTION, Link, BDS_LOAD_OPTION_SIGNATURE);
-
-    FreePool(BootOption->DevicePath);
-    FreePool(BootOption->Description);
-    FreePool(BootOption->LoadOptions);
-    FreePool(BootOption);
+  if (CurFullPath != NULL) {
+    FreePool(CurFullPath);
   }
+
+  //
+  // Free BootOption Buffer
+  //
+  for (Index = 0; Index < BootOptionNum; Index++) {
+    if (BootOptionBuf[Index].Description != NULL) {
+      FreePool(BootOptionBuf[Index].Description);
+    }
+
+    if (BootOptionBuf[Index].FilePath != NULL) {
+      FreePool(BootOptionBuf[Index].FilePath);
+    }
+
+    if (BootOptionBuf[Index].OptionalData != NULL) {
+      FreePool(BootOptionBuf[Index].OptionalData);
+    }
+  }
+
+  FreePool(BootOptionBuf);
 
   return Status;
 }
@@ -985,7 +1049,7 @@ CodLibGetAllCapsuleOnDisk(
   FileDir     = NULL;
   *CapsuleNum = 0;
 
-  Status = GetEfiSysPartitionFromActiveBootOption(MaxRetryCount, NULL, &Fs);
+  Status = GetEfiSysPartitionFromActiveBootOption(MaxRetryCount, &Fs);
   if (EFI_ERROR(Status)) {
     return Status;
   }

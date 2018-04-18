@@ -48,8 +48,8 @@
   FileHandleLib
   DxeServicesLib
   CapsuleLib
-  GenericBdsLib
   UefiBootManagerLib
+  DevicePathLib
 
 [Protocols]
   gEfiSimpleFileSystemProtocolGuid ## SOMETIMES_CONSUMES
