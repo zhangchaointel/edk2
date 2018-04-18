@@ -1243,3 +1243,13 @@
 #string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdEdkiiFpdtStringRecordEnableOnly_HELP    #language en-US "Control which FPDT record format will be used to store the performance entry.\n"
                                                                                                       "On TRUE, the string FPDT record will be used to store every performance entry.\n"
                                                                                                       "On FALSE, the different FPDT record will be used to store the different performance entries."
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdCapsuleOnDiskSupport_PROMPT  #language en-US "If a platform supports Capsule On Disk.\n"
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdCapsuleOnDiskSupport_HELP    #language en-US "If a platform supports Capsule On Disk.\n"
+                                                                                                      
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdCapsuleOnRamSupport_PROMPT  #language en-US "If a platform supports Capsule On RAM.\n"
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdCapsuleOnRamSupport_HELP    #language en-US "If a platform supports Capsule On RAM.\n"
+                                                                                                                                                    "If TRUE Capsule can be delivered via UpdateCapsule() Service.\n"
+                                                                                                                                                    "If FALSE UpdateCapsule() will always return EFI_NOT_SUPPORTED.\n"

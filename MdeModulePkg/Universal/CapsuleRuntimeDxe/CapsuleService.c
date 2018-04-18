@@ -99,7 +99,15 @@ UpdateCapsule (
   BOOLEAN                   InitiateReset;
   CHAR16                    CapsuleVarName[30];
   CHAR16                    *TempVarName;  
-  
+
+  //
+  // Check if platform support Capsule On RAM or not
+  // Platform could choose to drop CapsulePei/CapsuleX64 and do not support Capsule On RAM 
+  //
+  if (!PcdGetBool(PcdCapsuleOnRamSupport)) {
+    return EFI_UNSUPPORTED;
+  }
+
   //
   // Capsule Count can't be less than one.
   //

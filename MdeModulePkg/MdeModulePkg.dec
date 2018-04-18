@@ -1906,6 +1906,14 @@
   # @Prompt The address mask when memory encryption is enabled.
   gEfiMdeModulePkgTokenSpaceGuid.PcdPteMemoryEncryptionAddressOrMask|0x0|UINT64|0x30001047
 
+  ## Specify if Capsule On Disk feature is supported
+  # @Prompt If Capsule On Disk feature is supported.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskSupport|FALSE|BOOLEAN|0x0000002d
+
+  ## Specify if Capsule On RAM feature is supported
+  # @Prompt If Capsule On RAM feature is supported.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnRamSupport|TRUE|BOOLEAN|0x0000002e
+
 [PcdsPatchableInModule]
   ## Specify memory size with page number for PEI code when
   #  Loading Module at Fixed Address feature is enabled.
@@ -1934,10 +1942,6 @@
   # @Prompt LMFA SMM code page number.
   # @ValidList  0x80000001 | 0
   gEfiMdeModulePkgTokenSpaceGuid.PcdLoadFixAddressSmmCodePageNumber|0|UINT32|0x0000002c
-
-  ## Specify if Capsule On Disk feature is supported
-  # @Prompt If Capsule On Disk feature is supported.
-  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskSupport|TRUE|BOOLEAN|0x0000002d
 
 [PcdsDynamic, PcdsDynamicEx]
   ## This dynamic PCD hold an address to point to private data structure used in DxeS3BootScriptLib library
