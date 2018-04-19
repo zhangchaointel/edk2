@@ -132,7 +132,7 @@ InitCapsulePtr (
     HobPointer.Raw = GET_NEXT_HOB (HobPointer);
   }
 
-  DEBUG ((DEBUG_INFO, "mCapsuleTotalNumber - 0x%x\n", mCapsuleTotalNumber));
+  DEBUG ((DEBUG_INFO, "mCapsuleTotalNumber after getting Capsule from RAM- 0x%x\n", mCapsuleTotalNumber));
 
   //
   // Find all capsule images from disk
@@ -140,7 +140,7 @@ InitCapsulePtr (
   if (PcdGetBool(PcdCapsuleOnDiskSupport) && CodLibCheckCapsuleOnDiskFlag()) {
     Status = CodLibGetAllCapsuleOnDisk(10, &CapsuleOnDiskBuf, &CapsuleOnDiskBufNum);
 
-    DEBUG ((DEBUG_INFO, "CodLibGetAllCapsuleOnDisk Status - 0x%x\n", Status));
+    DEBUG ((DEBUG_INFO, "CodLibGetAllCapsuleOnDisk Status after getting Caspule from Disk- 0x%x\n", Status));
     CoDLibClearCapsuleOnDiskFlag();
     mCapsuleTotalNumber += (UINT32)CapsuleOnDiskBufNum;
   }

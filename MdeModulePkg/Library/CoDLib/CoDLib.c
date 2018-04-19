@@ -266,7 +266,7 @@ GetBootOptionInOrder(
     }
 
     if (BootOrderCount > 0) {
-      CopyMem(TempBuf + 1, BootOrderOptionBuf, sizeof(EFI_BOOT_MANAGER_LOAD_OPTION) * BootOrderCount);
+      CopyMem(TempBuf + BootNextCount, BootOrderOptionBuf, sizeof(EFI_BOOT_MANAGER_LOAD_OPTION) * BootOrderCount);
     }
 
     *OptionBuf   = TempBuf;
@@ -418,6 +418,16 @@ GetEfiSysPartitionFromActiveBootOption(
         break;
       }
 
+      DEBUG_CODE (
+        CHAR16 *DevicePathStr1;
+ 
+        DevicePathStr1 = ConvertDevicePathToText(CurFullPath, TRUE, TRUE);
+        if (DevicePathStr1 != NULL){
+          DEBUG((DEBUG_INFO, "Full device path %s\n", DevicePathStr1));
+          FreePool(DevicePathStr1);
+        } 
+      );
+
       //
       // Make sure the boot option device path connected.
       // Only handle first device in boot option. Other optional device paths are described as OSV specific
@@ -475,12 +485,12 @@ GetEfiSysPartitionFromActiveBootOption(
   }
 
   DEBUG_CODE (
-    CHAR16 *DevicePathStr1;
+    CHAR16 *DevicePathStr2;
     if (*Fs != NULL) {
-      DevicePathStr1 = ConvertDevicePathToText(CurFullPath, TRUE, TRUE);
-      if (DevicePathStr1 != NULL){
-        DEBUG((DEBUG_INFO, "Found Active EFI System Partion on %s\n", DevicePathStr1));
-        FreePool(DevicePathStr1);
+      DevicePathStr2 = ConvertDevicePathToText(CurFullPath, TRUE, TRUE);
+      if (DevicePathStr2 != NULL){
+        DEBUG((DEBUG_INFO, "Found Active EFI System Partion on %s\n", DevicePathStr2));
+        FreePool(DevicePathStr2);
       } 
     } else {
       DEBUG((DEBUG_INFO, "Failed to found Active EFI System Partion\n"));
