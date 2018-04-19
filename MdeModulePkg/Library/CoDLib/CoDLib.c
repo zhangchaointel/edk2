@@ -431,20 +431,26 @@ GetEfiSysPartitionFromActiveBootOption(
       //
       // Make sure the boot option device path connected.
       // Only handle first device in boot option. Other optional device paths are described as OSV specific
+      // FullDevice could contain extra directory & file info. So don't check connection status here.
       //
-      Status = EfiBootManagerConnectDevicePath (CurFullPath, NULL);
+      EfiBootManagerConnectDevicePath (CurFullPath, NULL);
+      Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
 
       //
-      // Expand USB Class or USB WWID device path node to be full device path of a USB
-      // device in platform then load the boot file on this full device path and get the
-      // image handle.
+      // Loop to wait for USB device get enumerated
       //
       if (EFI_ERROR(Status) && CheckUsbDevicePath(CurFullPath)) {
         while (MaxTryCount > 0) {
-          Status = EfiBootManagerConnectDevicePath(CurFullPath, NULL);
+          EfiBootManagerConnectDevicePath(CurFullPath, NULL);
+
+          //
+          // Search for EFI system partition protocol on full device path in Boot Option 
+          //
+          Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
           if (!EFI_ERROR(Status)) {
             break;
           }
+          DEBUG((DEBUG_ERROR, "GetEfiSysPartitionFromDevPath Loop %x\n", Status));
         }
 
         //
@@ -455,12 +461,8 @@ GetEfiSysPartitionFromActiveBootOption(
       }
 
 
-#if 1
-      if (!EFI_ERROR(Status)) {
-        Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
-      }
+#if 0
 
-#else
     //
     // Search for EFI system partition protocol on full device path in Boot Option 
     //
@@ -474,6 +476,13 @@ GetEfiSysPartitionFromActiveBootOption(
 
 #endif
     } while(EFI_ERROR(Status));
+
+    //
+    // Find a qualified Simple File System
+    //
+    if (!EFI_ERROR(Status)) {
+      break;
+    }
 
   }
 
