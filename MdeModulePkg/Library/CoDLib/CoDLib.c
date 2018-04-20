@@ -451,13 +451,12 @@ GetEfiSysPartitionFromActiveBootOption(
             break;
           }
           DEBUG((DEBUG_ERROR, "GetEfiSysPartitionFromDevPath Loop %x\n", Status));
+          //
+          // Stall 100ms if connection failed to ensure USB stack is ready.
+          //
+          gBS->Stall(100000);
+          MaxTryCount --;
         }
-
-        //
-        // Stall 100ms if connection failed to ensure USB stack is ready.
-        //
-        gBS->Stall(100000);
-        MaxTryCount --;
       }
 
 
