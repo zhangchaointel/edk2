@@ -1539,6 +1539,13 @@ BmGetNextLoadOptionDevicePath (
   ASSERT (FilePath != NULL);
 
   //
+  // First Validate input FilePath
+  //
+  if (!IsDevicePathValid(FilePath, 0)) {
+    return NULL;
+  }
+
+  //
   // Boot from media device by adding a default file name \EFI\BOOT\BOOT{machine type short-name}.EFI
   //
   Node = FilePath;
