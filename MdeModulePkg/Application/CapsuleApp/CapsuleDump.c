@@ -30,6 +30,15 @@
 #include <Guid/CapsuleVendor.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <Library/FileHandleLib.h>
+#include <Library/SortLib.h>
+#include <Library/UefiBootManagerLib.h>
+#include <Library/DevicePathLib.h>
+
+//
+// (20 * (6+5+2))+1) unicode characters from EFI FAT spec (doubled for bytes)
+//
+#define MAX_FILE_NAME_SIZE   522
+#define MAX_FILE_NAME_LEN    (MAX_FILE_NAME_SIZE / sizeof(CHAR16))
 
 /**
   Read a file.
@@ -77,8 +86,8 @@ Get SimpleFileSystem handle from device path
 EFI_STATUS
 EFIAPI
 GetSimpleFileSystemHandleFromDevPath (
-  IN  EFI_DEVICE_PATH_PROTOCOL      *DevicePath,
-  OUT EFI_HANDLE                    *Handle
+  IN  EFI_DEVICE_PATH_PROTOCOL         *DevicePath,
+  OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs
   );
 
 /**
@@ -571,6 +580,186 @@ Done:
 }
 
 /**
+
+   This routine is called to set a new capsule status to variable
+  The variable name is L"CapsuleXXXX"
+  
+  @param[in]   CapsuleStatus              capsule process status
+
+  @retval upper cased string after process
+
+**/
+STATIC
+CHAR16 *
+UpperCaseString (
+  IN CHAR16 *Str
+  )
+{
+  CHAR16  *Cptr;
+
+  for (Cptr = Str; *Cptr; Cptr++) {
+    if (L'a' <= *Cptr && *Cptr <= L'z') {
+      *Cptr = *Cptr - L'a' + L'A';
+    }
+  }
+
+  return Str;
+}
+
+/**
+
+   This routine is used to return substring before period '.' or '\0'
+   Caller owns substr space allocation & free
+  
+  @param[in]   CapsuleStatus              capsule process status
+
+  @retval upper cased string after process
+
+**/
+STATIC
+VOID
+GetSubStringBeforePeriod (
+   IN  CHAR16 *Str, 
+   OUT CHAR16 *SubStr, 
+   OUT UINTN  *SubStrLen
+  )
+{
+  UINTN Index;
+  for (Index = 0; Str[Index] != L'.' && Str[Index] != L'\0'; Index++) {
+    SubStr[Index] = Str[Index]; 
+  }
+
+  SubStr[Index] = L'\0';
+  *SubStrLen = Index;
+
+}
+
+/**
+
+   This routine pad the string in tail with input character.
+  
+  @param[in]   StrBuf              Str buffer to be padded, should be enough room for 
+  @param[in]   PadLen             Expected padding length
+  @param[in]   Character         Character used to pad
+
+**/
+STATIC
+VOID
+PadStrInTail (
+   IN CHAR16   *StrBuf, 
+   IN UINTN    PadLen, 
+   IN CHAR16   Character
+  )
+{
+  UINTN Index;
+
+  for (Index = 0; StrBuf[Index] != L'\0'; Index++);
+
+  while(PadLen != 0) {
+    StrBuf[Index] = Character;
+    Index++;
+    PadLen--;
+  }
+
+  StrBuf[Index] = L'\0';
+ }
+
+/**
+
+   This routine find the offset of the last period '.' of string. if No period exists
+   function FileNameExtension is set to L'\0'
+  
+  @param[in]   FileName                File name to split between last period
+  @param[out] FileNameFirst          First FileName before last period
+  @param[out] FileNameExtension  FileName after last period
+  
+**/
+STATIC
+VOID
+SplitFileNameExtension (
+   IN CHAR16   *FileName,
+   OUT CHAR16  *FileNameFirst,
+   OUT CHAR16  *FileNameExtension
+  )
+{
+  UINTN Index;
+  UINTN StringLen;
+
+  StringLen = StrLen(FileName);
+  for (Index = StringLen; Index > 0 && FileName[Index] != L'.'; Index--);
+
+  //
+  // No period exists. No FileName Extension
+  //
+  if (Index == 0 && FileName[Index] != L'.') {
+    FileNameExtension[0] = L'\0';
+    Index = StringLen;
+  } else {
+    StrCpyS(FileNameExtension, MAX_FILE_NAME_LEN, &FileName[Index+1]);
+  }
+
+  //
+  // Copy First file name
+  //
+  StrnCpyS(FileNameFirst, MAX_FILE_NAME_LEN, FileName, Index);
+  FileNameFirst[Index] = L'\0';
+
+}
+
+INTN
+EFIAPI
+CompareFileNameInAlphabet (
+  EFI_PHYSICAL_ADDRESS  *Left,
+  EFI_PHYSICAL_ADDRESS  *Right
+  ) {
+  EFI_FILE_INFO  *FileInfo1;
+  EFI_FILE_INFO  *FileInfo2;
+  CHAR16         FileName1[MAX_FILE_NAME_SIZE];
+  CHAR16         FileExtension1[MAX_FILE_NAME_SIZE];
+  CHAR16         FileName2[MAX_FILE_NAME_SIZE];
+  CHAR16         FileExtension2[MAX_FILE_NAME_SIZE];
+  CHAR16         TempSubStr1[MAX_FILE_NAME_SIZE];
+  CHAR16         TempSubStr2[MAX_FILE_NAME_SIZE];
+  UINTN          SubStrLen1;
+  UINTN          SubStrLen2;
+  INTN           SubStrCmpResult;
+  
+  FileInfo1 = (EFI_FILE_INFO *) *Left;
+  FileInfo2 = (EFI_FILE_INFO *) *Right;
+
+  SplitFileNameExtension (FileInfo1->FileName, FileName1, FileExtension1);
+  SplitFileNameExtension (FileInfo2->FileName, FileName2, FileExtension2);
+
+  UpperCaseString (FileName1);
+  UpperCaseString (FileName2);
+
+  GetSubStringBeforePeriod(FileName1, TempSubStr1, &SubStrLen1);
+  GetSubStringBeforePeriod(FileName2, TempSubStr2, &SubStrLen2);
+
+  if (SubStrLen1 > SubStrLen2) {
+    //
+    // Substr in NewFileName is longer.  Pad tail with SPACE
+    //
+    PadStrInTail(TempSubStr2, SubStrLen1 - SubStrLen2, L' ');
+  } else if (SubStrLen1 < SubStrLen2){
+    //
+    // Substr in ListedFileName is longer. Pad tail with SPACE
+    //
+    PadStrInTail(TempSubStr1, SubStrLen2 - SubStrLen1, L' ');
+  }
+
+  SubStrCmpResult = StrnCmp(TempSubStr1, TempSubStr2, MAX_FILE_NAME_LEN);
+  if (SubStrCmpResult != 0) {
+    return SubStrCmpResult;
+  }
+
+  UpperCaseString (FileExtension1);
+  UpperCaseString (FileExtension2);
+
+  return StrnCmp(FileExtension1, FileExtension2, MAX_FILE_NAME_LEN);
+}
+
+/**
   Dump capsule information from disk
 
   @param[in] DevicePath          The device path of disk.
@@ -583,23 +772,21 @@ DumpCapsuleFromDisk (
   )
 {
   EFI_STATUS                                    Status;
-  EFI_HANDLE                                    Handle;
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL               *Fs;
   EFI_FILE                                      *Root;
   EFI_FILE                                      *DirHandle = NULL;
-  EFI_FILE                                      *FileHandle = NULL;
+//  EFI_FILE                                      *FileHandle = NULL;
   CHAR16                                        *mDirName = L"\\efi\\UpdateCapsule";
-  CHAR16                                        FileName[50];
+//  CHAR16                                        FileName[50];
   UINTN                                         Index = 0;
-  UINTN                                         FileSize;
-  VOID                                          *FileBuffer;
+//  UINTN                                         FileSize;
+//  VOID                                          *FileBuffer;
+  EFI_FILE_INFO                                 **FileInfoBuffer;
+  EFI_FILE_INFO                                 *FileInfo;
+  UINTN                                         FileCount = 0;
+  BOOLEAN                                       NoFile = FALSE;
 
-  Status = GetSimpleFileSystemHandleFromDevPath (DevicePath, &Handle);
-  if (EFI_ERROR(Status)) {
-    return EFI_NOT_FOUND;
-  }
-
-  Status = gBS->HandleProtocol (Handle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
+  Status = GetSimpleFileSystemHandleFromDevPath (DevicePath, &Fs);
   if (EFI_ERROR(Status)) {
     return EFI_NOT_FOUND;
   }
@@ -616,6 +803,55 @@ DumpCapsuleFromDisk (
     return EFI_NOT_FOUND;
   }
 
+  //
+  // Get file count first
+  //
+  for ( Status = FileHandleFindFirstFile(DirHandle, &FileInfo)
+      ; !EFI_ERROR(Status) && !NoFile
+      ; Status = FileHandleFindNextFile(DirHandle, FileInfo, &NoFile)
+     ){
+    if ((FileInfo->Attribute & (EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE)) == 0) {
+      continue;
+    }
+    FileCount ++;
+  }
+
+  if (FileCount == 0) {
+    Print (L"No capsule file found\n");
+    return EFI_NOT_FOUND;
+  }
+
+  FileInfoBuffer = AllocatePool (sizeof(FileInfo) * FileCount);
+  NoFile = FALSE;
+
+  //
+  // Get all file info
+  //
+  for ( Status = FileHandleFindFirstFile(DirHandle, &FileInfo)
+      ; !EFI_ERROR(Status) && !NoFile
+      ; Status = FileHandleFindNextFile(DirHandle, FileInfo, &NoFile)
+     ){
+    if ((FileInfo->Attribute & (EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE)) == 0) {
+      continue;
+    }
+    FileInfoBuffer [Index ++] = AllocateCopyPool (FileInfo->Size, FileInfo);
+  }
+
+  //
+  // Sort FileInfoBuffer by alphabet order
+  //
+  PerformQuickSort (
+    FileInfoBuffer,
+    FileCount,
+    sizeof (FileInfo),
+    (SORT_COMPARE) CompareFileNameInAlphabet
+    );
+
+  for (Index = 0; Index < FileCount; Index ++) {
+    Print (L"%s\n", FileInfoBuffer[Index]->FileName);
+  }
+
+#if 0
   while (TRUE) {
     UnicodeSPrint (
       FileName,
@@ -658,7 +894,7 @@ DumpCapsuleFromDisk (
     FreePool(FileBuffer);
     Index++;
   }
-
+#endif
   return EFI_SUCCESS;
 }
 
@@ -698,17 +934,14 @@ DumpProvisionedData (
   VOID
   )
 {
-  EFI_STATUS                 Status;
-  CHAR16                     CapsuleVarName[30];
-  CHAR16                     *TempVarName;
-  UINTN                      Index;
-  EFI_PHYSICAL_ADDRESS       *CapsuleDataPtr64;
-  UINT16                     *BootNext;
-  CHAR16                     BootName[20];
-  UINT8                      *BootOption;
-  UINT8                      *BootOptionPtr;
-  CHAR16                     *Description;
-  EFI_DEVICE_PATH_PROTOCOL   *DevicePath;
+  EFI_STATUS                     Status;
+  CHAR16                         CapsuleVarName[30];
+  CHAR16                         *TempVarName;
+  UINTN                          Index;
+  EFI_PHYSICAL_ADDRESS           *CapsuleDataPtr64;
+  UINT16                         *BootNext;
+  CHAR16                         BootOptionName[20];
+  EFI_BOOT_MANAGER_LOAD_OPTION   BootNextOptionEntry;
 
   Index = 0;
 
@@ -749,23 +982,15 @@ DumpProvisionedData (
              NULL
             );
   if (!EFI_ERROR(Status)) {
-    UnicodeSPrint (BootName, sizeof (BootName), L"Boot%04x", *BootNext);
-    Status = GetVariable2 (
-               BootName,
-               &gEfiGlobalVariableGuid,
-               (VOID **) &BootOption,
-               NULL
-    );
+    UnicodeSPrint (BootOptionName, sizeof (BootOptionName), L"Boot%04x", *BootNext);
+    Status = EfiBootManagerVariableToLoadOption (BootOptionName, &BootNextOptionEntry);
     if (!EFI_ERROR(Status)) {
       //
-      // Get description and device path
+      // Display description and device path
       //
-      BootOptionPtr = BootOption;
-      BootOptionPtr += sizeof (UINT32) + sizeof (UINT16);
-      Description = (CHAR16 *) BootOptionPtr;
-      BootOptionPtr += StrSize (Description);
-      DevicePath = (EFI_DEVICE_PATH_PROTOCOL *) BootOptionPtr;
-      DumpCapsuleFromDisk (DevicePath);
+      Print (L"%s\n", BootNextOptionEntry.Description);
+      Print (L"%s\n", ConvertDevicePathToText(BootNextOptionEntry.FilePath, TRUE, TRUE));
+      DumpCapsuleFromDisk (BootNextOptionEntry.FilePath);
     }
   }
 

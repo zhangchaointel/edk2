@@ -123,7 +123,7 @@ EFIAPI
 GetSimpleFileSystemHandleFromDevPath (
   IN  EFI_DEVICE_PATH_PROTOCOL         *DevicePath,
   OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs
-  ) 
+  )
 {
   EFI_STATUS                        Status;
   EFI_DEVICE_PATH_PROTOCOL          *CurFullPath;
@@ -448,7 +448,7 @@ ProcessCapsuleOnDisk (
   //
   Fs = NULL;
 
-  Status = GetUpdateHandle(&BootNext, &Fs, &UpdateBootNext);
+  Status = GetUpdateHandle (&BootNext, &Fs, &UpdateBootNext);
   if (EFI_ERROR(Status)) {
     Print(L"CapsuleApp: cannot find a valid file system on boot devies. Status = %r\n", Status);
     return Status;

@@ -69,6 +69,7 @@
   PrintLib
   FileHandleLib
   UefiBootManagerLib
+  SortLib
 
 [UserExtensions.TianoCore."ExtraFiles"]
   CapsuleAppExtra.uni
