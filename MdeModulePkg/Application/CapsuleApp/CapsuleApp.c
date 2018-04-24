@@ -118,14 +118,16 @@ DumpProvisionedData (
 
   @param[in]  CapsuleBuffer    An array of pointer to capsule images
   @param[in]  FileSize         An array of UINTN to capsule images size
+  @param[in]  FileName         An array of UINTN to capsule images name
   @param[in]  CapsuleNum       The count of capsule images
 
-  @retval EFI_SUCCESS ??????.
+  @retval EFI_SUCCESS       Capsule on disk secceed.
 **/
 EFI_STATUS
 ProcessCapsuleOnDisk (
   IN VOID                          **CapsuleBuffer,
   IN UINTN                         *FileSize,
+  IN CHAR16                        **FileName,
   IN UINTN                         CapsuleNum
   );
 
@@ -904,7 +906,7 @@ UefiMain (
   // Check whether is capsule on disk.
   //
   if (CapsuleOnDisk) {
-    Status = ProcessCapsuleOnDisk (CapsuleBuffer, FileSize, CapsuleNum);
+    Status = ProcessCapsuleOnDisk (CapsuleBuffer, FileSize, Argv + CapsuleFirstIndex, CapsuleNum);
     if (Status != EFI_SUCCESS) {
       Print (L"CapsuleApp: failed to update capsule - %r\n", Status);
       goto Done;

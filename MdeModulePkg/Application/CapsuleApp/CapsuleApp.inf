@@ -49,6 +49,7 @@
   gEfiCertPkcs7Guid                      ## CONSUMES   ## GUID
   gEfiSystemResourceTableGuid            ## CONSUMES   ## GUID
   gEfiCapsuleVendorGuid                  ## SOMETIMES_CONSUMES ## Variable:L"CapsuleUpdateData"
+  gEfiPartTypeSystemPartGuid             ## SOMETIMES_CONSUMES ## GUID
 
 [Protocols]
   gEfiGraphicsOutputProtocolGuid         ## CONSUMES
@@ -67,6 +68,7 @@
   UefiLib
   PrintLib
   FileHandleLib
+  UefiBootManagerLib
 
 [UserExtensions.TianoCore."ExtraFiles"]
   CapsuleAppExtra.uni
