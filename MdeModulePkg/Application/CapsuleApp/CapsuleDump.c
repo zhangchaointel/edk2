@@ -33,6 +33,7 @@
 #include <Library/SortLib.h>
 #include <Library/UefiBootManagerLib.h>
 #include <Library/DevicePathLib.h>
+#include <Protocol/Shell.h>
 
 //
 // (20 * (6+5+2))+1) unicode characters from EFI FAT spec (doubled for bytes)
@@ -74,6 +75,16 @@ WriteFileFromBuffer (
   );
 
 /**
+  Get shell protocol.
+
+  @return Pointer to shell protocol.
+**/
+EFI_SHELL_PROTOCOL *
+GetShellProtocol (
+  VOID
+  );
+
+/**
 Get SimpleFileSystem handle from device path
 
 @param[in]  DevicePath     The device path
@@ -85,8 +96,9 @@ Get SimpleFileSystem handle from device path
 **/
 EFI_STATUS
 EFIAPI
-GetSimpleFileSystemHandleFromDevPath (
+GetSimpleFileSystemFromDevPath (
   IN  EFI_DEVICE_PATH_PROTOCOL         *DevicePath,
+  OUT EFI_DEVICE_PATH_PROTOCOL         **FullPath,
   OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs
   );
 
@@ -768,11 +780,10 @@ CompareFileNameInAlphabet (
 **/
 EFI_STATUS
 DumpCapsuleFromDisk (
-  IN EFI_DEVICE_PATH_PROTOCOL                   *DevicePath
+  IN EFI_SIMPLE_FILE_SYSTEM_PROTOCOL            *Fs
   )
 {
   EFI_STATUS                                    Status;
-  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL               *Fs;
   EFI_FILE                                      *Root;
   EFI_FILE                                      *DirHandle = NULL;
 //  EFI_FILE                                      *FileHandle = NULL;
@@ -785,11 +796,6 @@ DumpCapsuleFromDisk (
   EFI_FILE_INFO                                 *FileInfo;
   UINTN                                         FileCount = 0;
   BOOLEAN                                       NoFile = FALSE;
-
-  Status = GetSimpleFileSystemHandleFromDevPath (DevicePath, &Fs);
-  if (EFI_ERROR(Status)) {
-    return EFI_NOT_FOUND;
-  }
 
   Status = Fs->OpenVolume(Fs, &Root);
   if (EFI_ERROR(Status)) {
@@ -834,7 +840,7 @@ DumpCapsuleFromDisk (
     if ((FileInfo->Attribute & (EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE)) == 0) {
       continue;
     }
-    FileInfoBuffer [Index ++] = AllocateCopyPool (FileInfo->Size, FileInfo);
+    FileInfoBuffer[Index ++] = AllocateCopyPool (FileInfo->Size, FileInfo);
   }
 
   //
@@ -934,14 +940,19 @@ DumpProvisionedData (
   VOID
   )
 {
-  EFI_STATUS                     Status;
-  CHAR16                         CapsuleVarName[30];
-  CHAR16                         *TempVarName;
-  UINTN                          Index;
-  EFI_PHYSICAL_ADDRESS           *CapsuleDataPtr64;
-  UINT16                         *BootNext;
-  CHAR16                         BootOptionName[20];
-  EFI_BOOT_MANAGER_LOAD_OPTION   BootNextOptionEntry;
+  EFI_STATUS                      Status;
+  CHAR16                          CapsuleVarName[30];
+  CHAR16                          *TempVarName;
+  UINTN                           Index;
+  EFI_PHYSICAL_ADDRESS            *CapsuleDataPtr64;
+  UINT16                          *BootNext;
+  CHAR16                          BootOptionName[20];
+  EFI_BOOT_MANAGER_LOAD_OPTION    BootNextOptionEntry;
+  EFI_DEVICE_PATH_PROTOCOL        *DevicePath;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
+  EFI_SHELL_PROTOCOL              *ShellProtocol;
+
+  ShellProtocol = GetShellProtocol();
 
   Index = 0;
 
@@ -988,9 +999,12 @@ DumpProvisionedData (
       //
       // Display description and device path
       //
-      Print (L"%s\n", BootNextOptionEntry.Description);
-      Print (L"%s\n", ConvertDevicePathToText(BootNextOptionEntry.FilePath, TRUE, TRUE));
-      DumpCapsuleFromDisk (BootNextOptionEntry.FilePath);
+      GetSimpleFileSystemFromDevPath (BootNextOptionEntry.FilePath, &DevicePath, &Fs);
+      if(!EFI_ERROR(Status)) {
+        Print (L"%s\n", BootNextOptionEntry.Description);
+        Print (L"%s %s\n", ShellProtocol->GetMapFromDevicePath (&DevicePath),ConvertDevicePathToText(DevicePath, TRUE, TRUE));
+        DumpCapsuleFromDisk (Fs);
+      }
     }
   }
 

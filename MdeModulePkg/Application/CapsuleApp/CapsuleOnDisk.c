@@ -27,7 +27,18 @@
 #include <Library/FileHandleLib.h>
 #include <Library/UefiBootManagerLib.h>
 #include <Guid/Gpt.h>
+#include <Protocol/Shell.h>
 
+
+/**
+  Get shell protocol.
+
+  @return Pointer to shell protocol.
+**/
+EFI_SHELL_PROTOCOL *
+GetShellProtocol (
+  VOID
+  );
 
 BOOLEAN
 CheckCapsuleOnDiskFlag(
@@ -64,7 +75,8 @@ CheckCapsuleOnDiskFlag(
 */
 EFI_STATUS
 GetEfiSysPartitionFromDevPath(
-  IN EFI_DEVICE_PATH_PROTOCOL         *DevicePath,
+  IN  EFI_DEVICE_PATH_PROTOCOL        *DevicePath,
+  OUT EFI_DEVICE_PATH_PROTOCOL        **FsDevicePath,
   OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL **Fs
   )
 {
@@ -100,6 +112,7 @@ GetEfiSysPartitionFromDevPath(
     if (!EFI_ERROR (Status)) {
       Status = gBS->HandleProtocol (Handle, &gEfiSimpleFileSystemProtocolGuid, Fs);
       if (!EFI_ERROR (Status)) {
+        *FsDevicePath = DevicePathFromHandle(Handle);
         return EFI_SUCCESS;
       }
     }
@@ -120,15 +133,16 @@ Get SimpleFileSystem handle from device path
 **/
 EFI_STATUS
 EFIAPI
-GetSimpleFileSystemHandleFromDevPath (
+GetSimpleFileSystemFromDevPath (
   IN  EFI_DEVICE_PATH_PROTOCOL         *DevicePath,
+  OUT EFI_DEVICE_PATH_PROTOCOL         **FullPath,
   OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs
   )
 {
   EFI_STATUS                        Status;
   EFI_DEVICE_PATH_PROTOCOL          *CurFullPath;
   EFI_DEVICE_PATH_PROTOCOL          *PreFullPath;
-
+  EFI_DEVICE_PATH_PROTOCOL          *FsFullPath;
 
   CurFullPath = NULL;
   //
@@ -160,10 +174,11 @@ GetSimpleFileSystemHandleFromDevPath (
       } 
     );
   
-    Status = GetEfiSysPartitionFromDevPath (CurFullPath, Fs);
+    Status = GetEfiSysPartitionFromDevPath (CurFullPath, &FsFullPath, Fs);
   } while (EFI_ERROR (Status));
  
   if (*Fs != NULL) {
+    *FullPath = FsFullPath;
     return EFI_SUCCESS;
   } else {
     return EFI_NOT_FOUND;
@@ -193,10 +208,14 @@ GetUpdateHandle(
   CHAR16                          BootOptionName[20];
   UINTN                           Index;
   EFI_DEVICE_PATH_PROTOCOL        *DevicePath;
+  EFI_DEVICE_PATH_PROTOCOL        *FullPath;
   UINT16                          *TempValue;
   EFI_BOOT_MANAGER_LOAD_OPTION    BootNextOptionEntry;
   EFI_BOOT_MANAGER_LOAD_OPTION    *BootOptionBuffer;
   UINTN                           BootOptionCount;
+  EFI_SHELL_PROTOCOL              *ShellProtocol;
+
+  ShellProtocol = GetShellProtocol();
 
   if (CheckCapsuleOnDiskFlag ()) {
     Status = GetVariable2 (
@@ -209,9 +228,12 @@ GetUpdateHandle(
       UnicodeSPrint (BootOptionName, sizeof (BootOptionName), L"Boot%04x", *TempValue);
       Status = EfiBootManagerVariableToLoadOption (BootOptionName, &BootNextOptionEntry);
       if (!EFI_ERROR(Status)) {
-        Status = GetSimpleFileSystemHandleFromDevPath (BootNextOptionEntry.FilePath, Fs);
+        DevicePath = BootNextOptionEntry.FilePath;
+        Status = GetSimpleFileSystemFromDevPath (DevicePath, &FullPath, Fs);
         if (!EFI_ERROR(Status)) {
           *UpdateBootNext = FALSE;
+          Print(L"Get EFI system partition from BootNext : %s\n", BootNextOptionEntry.Description);
+          Print(L"%s %s\n", ShellProtocol->GetMapFromDevicePath (&FullPath), ConvertDevicePathToText (FullPath, TRUE, TRUE));
           return EFI_SUCCESS;
         }
       }
@@ -249,10 +271,12 @@ GetUpdateHandle(
       }
     );
 
-    Status = GetSimpleFileSystemHandleFromDevPath (DevicePath, Fs);
+    Status = GetSimpleFileSystemFromDevPath (DevicePath, &FullPath, Fs);
     if (!EFI_ERROR(Status)) {
       *BootNext = (UINT16) BootOptionBuffer[Index].OptionNumber;
       *UpdateBootNext = TRUE;
+      Print(L"Found EFI system partition on Boot%04x: %s\n", *BootNext, BootOptionBuffer[Index].Description);
+      Print(L"%s %s\n", ShellProtocol->GetMapFromDevicePath (&FullPath), ConvertDevicePathToText (FullPath, TRUE, TRUE));
       return EFI_SUCCESS;
     }
   }
@@ -309,7 +333,7 @@ WriteUpdateFile(
   if (EFI_ERROR(Status)) {
     Status = Root->Open(Root, &DirHandle, mDirName1, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, EFI_FILE_DIRECTORY);
     if (EFI_ERROR(Status)) {
-      Print(L"Unable to create %s directory", mDirName1);
+      Print(L"Unable to create %s directory\n", mDirName1);
       return EFI_NOT_FOUND;
     }
   }
@@ -317,7 +341,7 @@ WriteUpdateFile(
   if (EFI_ERROR(Status)) {
     Status = Root->Open(Root, &DirHandle, mDirName, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, EFI_FILE_DIRECTORY);
     if (EFI_ERROR(Status)) {
-      Print(L"Unable to create %s directory", mDirName);
+      Print(L"Unable to create %s directory\n", mDirName);
       return EFI_NOT_FOUND;
     }
   }
@@ -330,7 +354,7 @@ WriteUpdateFile(
     //
     Status = DirHandle->Open(DirHandle, &FileHandle, FileName[Index], EFI_FILE_MODE_CREATE | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR(Status)) {
-      Print(L"Unable to create %s file", FileName[Index]);
+      Print(L"Unable to create %s file\n", FileName[Index]);
       return EFI_NOT_FOUND;
     }
 
@@ -340,7 +364,7 @@ WriteUpdateFile(
     Status = FileHandleGetSize(FileHandle, &FileInfo);
     if (EFI_ERROR(Status)) {
       FileHandleClose(FileHandle);
-      Print(L"Error Reading %s", FileName[Index]);
+      Print(L"Error Reading %s\n", FileName[Index]);
       return EFI_DEVICE_ERROR;
     }
 
@@ -354,7 +378,7 @@ WriteUpdateFile(
       FileInfo = 0;
       Status = FileHandleSetSize(FileHandle, FileInfo);
       if (EFI_ERROR(Status)) {
-        Print(L"Error Deleting %s", FileName[Index]);
+        Print(L"Error Deleting %s\n", FileName[Index]);
         FileHandleClose(FileHandle);
         return Status;
       }
@@ -371,6 +395,7 @@ WriteUpdateFile(
       return EFI_NOT_FOUND;
     }
 
+    Print(L"Suceed to write %s\n", FileName[Index]);
     FileHandleClose(FileHandle);
   }
 
