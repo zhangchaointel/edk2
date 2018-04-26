@@ -40,6 +40,60 @@ GetShellProtocol (
   VOID
   );
 
+/**
+  Dump all EFI System Parition.
+**/
+VOID
+DumpAllEfiSysPartition (
+  VOID
+  )
+{
+  EFI_HANDLE                 *SimpleFileSystemHandles;
+  UINTN                      NumberSimpleFileSystemHandles;
+  UINTN                      Index;
+  EFI_DEVICE_PATH_PROTOCOL   *DevicePath;
+  EFI_DEVICE_PATH_PROTOCOL   *TempDevicePath;
+  HARDDRIVE_DEVICE_PATH      *Hd;
+  UINTN                      NumberEfiSystemPartition;
+  EFI_SHELL_PROTOCOL         *ShellProtocol;
+
+  ShellProtocol = GetShellProtocol();
+  NumberEfiSystemPartition = 0;
+
+  Print (L"ESP list:\n");
+
+  gBS->LocateHandleBuffer (
+      ByProtocol,
+      &gEfiSimpleFileSystemProtocolGuid,
+      NULL,
+      &NumberSimpleFileSystemHandles,
+      &SimpleFileSystemHandles
+      );
+
+  for (Index = 0; Index < NumberSimpleFileSystemHandles; Index ++) {
+    DevicePath = TempDevicePath = DevicePathFromHandle (SimpleFileSystemHandles[Index]);
+    while (!IsDevicePathEnd (TempDevicePath)) {
+      if ((DevicePathType (TempDevicePath) == MEDIA_DEVICE_PATH) &&
+        (DevicePathSubType (TempDevicePath) == MEDIA_HARDDRIVE_DP)) {
+        Hd = (HARDDRIVE_DEVICE_PATH *)TempDevicePath;
+        if (Hd->MBRType == MBR_TYPE_EFI_PARTITION_TABLE_HEADER) {
+          break;
+        }
+      }
+      TempDevicePath = NextDevicePathNode (TempDevicePath);
+    }
+
+    if (!IsDevicePathEnd (TempDevicePath)) {
+      NumberEfiSystemPartition ++;
+      Print(L"    %s\n        %s\n", ShellProtocol->GetMapFromDevicePath (&DevicePath), ConvertDevicePathToText (DevicePath, TRUE, TRUE));
+    }
+  }
+
+  if (NumberEfiSystemPartition == 0) {
+    Print(L"    No ESP found.\n");
+  }
+}
+
 BOOLEAN
 CheckCapsuleOnDiskFlag(
   VOID
@@ -188,6 +242,7 @@ GetSimpleFileSystemFromDevPath (
 /**
 Get a valid SimpleFileSystem handle from Boot device
 
+@param[In]  FsMapping       The FS mapping capsule write to
 @param[out] BootNext        The value of BootNext Variable
 @param[out] Handle          The file system handle
 @param[out] UpdateBootNext  The flag to indicate whether update BootNext Variable
@@ -199,6 +254,7 @@ Get a valid SimpleFileSystem handle from Boot device
 EFI_STATUS
 EFIAPI
 GetUpdateHandle(
+  IN  CHAR16                           *FsMapping,
   OUT UINT16                           *BootNext,
   OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs,
   OUT BOOLEAN                          *UpdateBootNext
@@ -217,7 +273,7 @@ GetUpdateHandle(
 
   ShellProtocol = GetShellProtocol();
 
-  if (CheckCapsuleOnDiskFlag ()) {
+  if (CheckCapsuleOnDiskFlag () && FsMapping == NULL) {
     Status = GetVariable2 (
                L"BootNext",
                &gEfiGlobalVariableGuid,
@@ -273,12 +329,25 @@ GetUpdateHandle(
 
     Status = GetSimpleFileSystemFromDevPath (DevicePath, &FullPath, Fs);
     if (!EFI_ERROR(Status)) {
-      *BootNext = (UINT16) BootOptionBuffer[Index].OptionNumber;
-      *UpdateBootNext = TRUE;
-      Print(L"Found EFI system partition on Boot%04x: %s\n", *BootNext, BootOptionBuffer[Index].Description);
-      Print(L"%s %s\n", ShellProtocol->GetMapFromDevicePath (&FullPath), ConvertDevicePathToText (FullPath, TRUE, TRUE));
-      return EFI_SUCCESS;
+      if (FsMapping == NULL) {
+        *BootNext = (UINT16) BootOptionBuffer[Index].OptionNumber;
+        *UpdateBootNext = TRUE;
+        Print(L"Found EFI system partition on Boot%04x: %s\n", *BootNext, BootOptionBuffer[Index].Description);
+        Print(L"%s %s\n", ShellProtocol->GetMapFromDevicePath (&FullPath), ConvertDevicePathToText (FullPath, TRUE, TRUE));
+        return EFI_SUCCESS;
+      }
+
+      if (StrnCmp(FsMapping, ShellProtocol->GetMapFromDevicePath (&FullPath), StrLen(FsMapping)) == 0) {
+        *BootNext = (UINT16) BootOptionBuffer[Index].OptionNumber;
+        *UpdateBootNext = TRUE;
+        Print(L"Found Boot Option on %s : %s\n", FsMapping, BootOptionBuffer[Index].Description);
+        return EFI_SUCCESS;
+      }
     }
+  }
+ 
+  if (FsMapping != NULL) {
+    Print(L"Cannot find Boot Option on %s!\n", FsMapping);
   }
 
   return EFI_NOT_FOUND;
@@ -450,7 +519,8 @@ SetCapsuleStatusVariable(
 
   @param[in]  CapsuleBuffer    An array of pointer to capsule images
   @param[in]  FileSize         An array of UINTN to capsule images size
-  @param[in]  FileName         An array of UINTN to capsule images name
+  @param[in]  OrgFileName      An array of orginal capsule images name
+  @param[in]  NewFileName      An array of new capsule images name
   @param[in]  CapsuleNum       The count of capsule images
 
   @retval EFI_SUCCESS       Capsule on disk secceed.
@@ -459,7 +529,9 @@ EFI_STATUS
 ProcessCapsuleOnDisk (
   IN VOID                          **CapsuleBuffer,
   IN UINTN                         *FileSize,
-  IN CHAR16                        **FileName,
+  IN CHAR16                        **OrgFileName,
+  IN CHAR16                        *FsMapping,
+  IN CHAR16                        **NewFileName,
   IN UINTN                         CapsuleNum
   )
 {
@@ -473,7 +545,7 @@ ProcessCapsuleOnDisk (
   //
   Fs = NULL;
 
-  Status = GetUpdateHandle (&BootNext, &Fs, &UpdateBootNext);
+  Status = GetUpdateHandle (FsMapping, &BootNext, &Fs, &UpdateBootNext);
   if (EFI_ERROR(Status)) {
     Print(L"CapsuleApp: cannot find a valid file system on boot devies. Status = %r\n", Status);
     return Status;
@@ -482,7 +554,11 @@ ProcessCapsuleOnDisk (
   //
   // Copy capsule image to '\efi\UpdateCapsule\'
   //
-  Status = WriteUpdateFile (CapsuleBuffer, FileSize, FileName, CapsuleNum, Fs);
+  if (NewFileName == NULL) {
+    Status = WriteUpdateFile (CapsuleBuffer, FileSize, OrgFileName, CapsuleNum, Fs);
+  } else {
+    Status = WriteUpdateFile (CapsuleBuffer, FileSize, NewFileName, CapsuleNum, Fs);
+  }
   if (EFI_ERROR (Status)) {
     Print(L"CapsuleApp: capsule image could not be copied for update.\n");
     return Status;

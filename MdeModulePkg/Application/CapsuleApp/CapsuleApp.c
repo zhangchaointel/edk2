@@ -114,11 +114,20 @@ DumpProvisionedData (
   );
 
 /**
+  Dump all EFI System Parition.
+**/
+VOID
+DumpAllEfiSysPartition (
+  VOID
+  );
+
+/**
   Process Capsule On Disk.
 
   @param[in]  CapsuleBuffer    An array of pointer to capsule images
   @param[in]  FileSize         An array of UINTN to capsule images size
-  @param[in]  FileName         An array of UINTN to capsule images name
+  @param[in]  OrgFileName      An array of orginal capsule images name
+  @param[in]  NewFileName      An array of new capsule images name
   @param[in]  CapsuleNum       The count of capsule images
 
   @retval EFI_SUCCESS       Capsule on disk secceed.
@@ -127,7 +136,9 @@ EFI_STATUS
 ProcessCapsuleOnDisk (
   IN VOID                          **CapsuleBuffer,
   IN UINTN                         *FileSize,
-  IN CHAR16                        **FileName,
+  IN CHAR16                        **OrgFileName,
+  IN CHAR16                        *FsMapping,
+  IN CHAR16                        **NewFileName,
   IN UINTN                         CapsuleNum
   );
 
@@ -697,11 +708,14 @@ PrintUsage (
   Print(L"CapsuleApp:  usage\n");
   Print(L"  CapsuleApp <Capsule...> [-NR]\n");
   Print(L"  CapsuleApp <Capsule...> [-OD]\n");
+  Print(L"  CapsuleApp <Capsule...> [-OD] <FSX:>\n");
+  Print(L"  CapsuleApp <Capsule...> [-OD] <FSX:> <FileName...>\n");
   Print(L"  CapsuleApp -S\n");
   Print(L"  CapsuleApp -C\n");
   Print(L"  CapsuleApp -P\n");
   Print(L"  CapsuleApp -E\n");
   Print(L"  CapsuleApp -L\n");
+  Print(L"  CapsuleApp -F\n");
   Print(L"  CapsuleApp -G <BMP> -O <Capsule>\n");
   Print(L"  CapsuleApp -N <Capsule> -O <NestedCapsule>\n");
   Print(L"  CapsuleApp -D <Capsule>\n");
@@ -717,6 +731,7 @@ PrintUsage (
   Print(L"  -P:  Dump UEFI FMP protocol info.\n");
   Print(L"  -E:  Dump UEFI ESRT table info.\n");
   Print(L"  -L:  Dump provisioned capsule image information.\n");
+  Print(L"  -F:  Dump all EFI System Partition.\n");
   Print(L"  -G:  Convert a BMP file to be a UX capsule,\n");
   Print(L"       according to Windows Firmware Update document\n");
   Print(L"  -N:  Append a Capsule Header to an existing capsule image,\n");
@@ -757,6 +772,10 @@ UefiMain (
   CHAR16                         *CapsuleName;
   UINTN                          CapsuleNum;
   UINTN                          Index;
+  UINTN                          ParaOdIndex;
+  UINTN                          ParaNrIndex;
+  UINTN                          CodFirstIndex;
+  UINTN                          CodLastIndex;
 
   Status = GetArg();
   if (EFI_ERROR(Status)) {
@@ -819,28 +838,46 @@ UefiMain (
     DumpProvisionedData();
     return EFI_SUCCESS;
   }
+  if (StrCmp(Argv[1], L"-F") == 0) {
+    DumpAllEfiSysPartition();
+    return EFI_SUCCESS;
+  }
   CapsuleFirstIndex = 1;
   NoReset = FALSE;
   CapsuleOnDisk = FALSE;
-  if ((Argc > 1) && (StrCmp(Argv[Argc - 1], L"-NR") == 0)) {
-    NoReset = TRUE;
-    if (StrCmp(Argv[Argc - 2], L"-OD") == 0) {
+  ParaOdIndex = 0;
+  ParaNrIndex = 0;
+
+  for (Index = 1; Index < Argc; Index ++) {
+    if (StrCmp(Argv[Index], L"-OD") == 0) {
+      ParaOdIndex = Index;
       CapsuleOnDisk = TRUE;
-      CapsuleLastIndex = Argc - 3;
-    } else {
-      CapsuleLastIndex = Argc - 2;
-    }
-  } else if ((Argc > 1) && (StrCmp(Argv[Argc - 1], L"-OD") == 0)) {
-    CapsuleOnDisk = TRUE;
-    if (StrCmp(Argv[Argc - 2], L"-NR") == 0) {
+    } else if (StrCmp(Argv[Index], L"-NR") == 0) {
+      ParaNrIndex = Index;
       NoReset = TRUE;
-      CapsuleLastIndex = Argc - 3;
+    }
+  }
+
+  CodFirstIndex = ParaOdIndex + 1;
+
+  if (ParaOdIndex > ParaNrIndex) {
+    CodLastIndex = Argc - 1;
+    if (ParaNrIndex != 0) {
+      CapsuleLastIndex = ParaNrIndex - 1;
     } else {
-      CapsuleLastIndex = Argc - 2;
+      CapsuleLastIndex = ParaOdIndex - 1;
+    }
+  } else if (ParaOdIndex < ParaNrIndex){
+    CodLastIndex = ParaNrIndex - 1;
+    if (ParaOdIndex != 0) {
+      CapsuleLastIndex = ParaOdIndex - 1;
+    } else {
+      CapsuleLastIndex = ParaNrIndex - 1;
     }
   } else {
     CapsuleLastIndex = Argc - 1;
   }
+
   CapsuleNum = CapsuleLastIndex - CapsuleFirstIndex + 1;
 
   if (CapsuleFirstIndex > CapsuleLastIndex) {
@@ -906,7 +943,24 @@ UefiMain (
   // Check whether is capsule on disk.
   //
   if (CapsuleOnDisk) {
-    Status = ProcessCapsuleOnDisk (CapsuleBuffer, FileSize, Argv + CapsuleFirstIndex, CapsuleNum);
+    if (CodLastIndex < CodFirstIndex) {
+      //
+      // Neither ESP or file name assigned.
+      //
+      Status = ProcessCapsuleOnDisk (CapsuleBuffer, FileSize, Argv + CapsuleFirstIndex, NULL, NULL, CapsuleNum);
+    } else if (CodLastIndex == CodFirstIndex) {
+      //
+      // ESP assigned but file name not assigned.
+      //
+      Status = ProcessCapsuleOnDisk (CapsuleBuffer, FileSize, Argv + CapsuleFirstIndex, *(Argv + CodFirstIndex) , NULL, CapsuleNum);
+    } else if (CodLastIndex - CodFirstIndex + 1 == CapsuleNum + 1) {
+      //
+      // ESP and file name assigned.
+      //
+      Status = ProcessCapsuleOnDisk (CapsuleBuffer, FileSize, Argv + CapsuleFirstIndex, *(Argv + CodFirstIndex) , Argv + CodFirstIndex + 1, CapsuleNum);  
+    } else {
+      Print (L"CapsuleApp: Wrong numbers of new capsule file name!\n");
+    }
     if (Status != EFI_SUCCESS) {
       Print (L"CapsuleApp: failed to update capsule - %r\n", Status);
       goto Done;
