@@ -137,7 +137,7 @@ ProcessCapsuleOnDisk (
   IN VOID                          **CapsuleBuffer,
   IN UINTN                         *FileSize,
   IN CHAR16                        **OrgFileName,
-  IN CHAR16                        *FsMapping,
+  IN CHAR16                        *Map,
   IN CHAR16                        **NewFileName,
   IN UINTN                         CapsuleNum
   );

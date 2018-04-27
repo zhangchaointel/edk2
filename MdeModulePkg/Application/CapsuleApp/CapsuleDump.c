@@ -96,7 +96,7 @@ Get SimpleFileSystem handle from device path
 **/
 EFI_STATUS
 EFIAPI
-GetSimpleFileSystemFromDevPath (
+GetEfiSysPartitionFromBootOptionFilePath (
   IN  EFI_DEVICE_PATH_PROTOCOL         *DevicePath,
   OUT EFI_DEVICE_PATH_PROTOCOL         **FullPath,
   OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs
@@ -999,10 +999,10 @@ DumpProvisionedData (
       //
       // Display description and device path
       //
-      GetSimpleFileSystemFromDevPath (BootNextOptionEntry.FilePath, &DevicePath, &Fs);
+      GetEfiSysPartitionFromBootOptionFilePath (BootNextOptionEntry.FilePath, &DevicePath, &Fs);
       if(!EFI_ERROR(Status)) {
         Print (L"%s\n", BootNextOptionEntry.Description);
-        Print (L"%s %s\n", ShellProtocol->GetMapFromDevicePath (&DevicePath),ConvertDevicePathToText(DevicePath, TRUE, TRUE));
+        Print (L"%s %s\n", ShellProtocol->GetMapFromDevicePath (&DevicePath), ConvertDevicePathToText(DevicePath, TRUE, TRUE));
         DumpCapsuleFromDisk (Fs);
       }
     }
