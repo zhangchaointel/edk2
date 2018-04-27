@@ -1016,7 +1016,9 @@ Done:
     }
   }
 
-  CleanGatherList(BlockDescriptors, CapsuleNum);
+  if (EFI_ERROR(Status)) {
+    CleanGatherList(BlockDescriptors, CapsuleNum);
+  }
 
   return Status;
 }

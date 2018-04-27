@@ -823,7 +823,7 @@ DumpCapsuleFromDisk (
   }
 
   if (FileCount == 0) {
-    Print (L"No capsule file found\n");
+    Print (L"Error: No capsule file found!\n");
     return EFI_NOT_FOUND;
   }
 
@@ -853,8 +853,10 @@ DumpCapsuleFromDisk (
     (SORT_COMPARE) CompareFileNameInAlphabet
     );
 
+  Print(L"The capsules will be performed by following order:\n");
+
   for (Index = 0; Index < FileCount; Index ++) {
-    Print (L"%s\n", FileInfoBuffer[Index]->FileName);
+    Print (L"  %d.%s\n", Index + 1, FileInfoBuffer[Index]->FileName);
   }
 
 #if 0
@@ -920,7 +922,8 @@ DumpBlockDescriptors (
 
   while (TRUE) {
     if (TempBlockPtr->Length != 0) {
-      DumpCapsuleFromBuffer ((EFI_CAPSULE_HEADER *) (UINTN) TempBlockPtr->Union.DataBlock);
+//      DumpCapsuleFromBuffer ((EFI_CAPSULE_HEADER *) (UINTN) TempBlockPtr->Union.DataBlock);
+      Print(L"Capsule data starts at 0x%08x with size 0x%08x\n", TempBlockPtr->Union.DataBlock, TempBlockPtr->Length);
       TempBlockPtr += 1;
     } else {
       if (TempBlockPtr->Union.ContinuationPointer == (UINTN)NULL) {
@@ -956,6 +959,12 @@ DumpProvisionedData (
 
   Index = 0;
 
+  //
+  // Dump capsule provisioned on Memory
+  // 
+  Print(L"#########################\n");
+  Print(L"### Capsule on Memory ###\n");
+  Print(L"#########################\n");
   StrCpyS (CapsuleVarName, sizeof(CapsuleVarName)/sizeof(CHAR16), EFI_CAPSULE_VARIABLE_NAME);
   TempVarName = CapsuleVarName + StrLen (CapsuleVarName);
   while (TRUE) {
@@ -977,15 +986,22 @@ DumpProvisionedData (
               );
     if (EFI_ERROR(Status)) {
       if (Index == 0) {
-        Print(L"No capsule data provisioned in memory.\n");
+        Print(L"No data.\n");
       }
       break;
     } else {
-      Print (L"CapsuleUpdateData%d:\n", Index ++);
+      Index ++;
+      Print(L"Capsule Description at 0x%08x\n", *CapsuleDataPtr64);
       DumpBlockDescriptors ((EFI_CAPSULE_BLOCK_DESCRIPTOR*) (UINTN) *CapsuleDataPtr64);
     }
   }
-
+  
+  //
+  // Dump capsule provisioned on Disk
+  //
+  Print(L"#########################\n");
+  Print(L"### Capsule on Disk #####\n");
+  Print(L"#########################\n");
   Status = GetVariable2 (
              L"BootNext",
              &gEfiGlobalVariableGuid,
@@ -1001,8 +1017,8 @@ DumpProvisionedData (
       //
       GetEfiSysPartitionFromBootOptionFilePath (BootNextOptionEntry.FilePath, &DevicePath, &Fs);
       if(!EFI_ERROR(Status)) {
-        Print (L"%s\n", BootNextOptionEntry.Description);
-        Print (L"%s %s\n", ShellProtocol->GetMapFromDevicePath (&DevicePath), ConvertDevicePathToText(DevicePath, TRUE, TRUE));
+        Print (L"Capsules are provisioned on BootOption: %s\n", BootNextOptionEntry.Description);
+        Print (L"    %s %s\n", ShellProtocol->GetMapFromDevicePath (&DevicePath), ConvertDevicePathToText(DevicePath, TRUE, TRUE));
         DumpCapsuleFromDisk (Fs);
       }
     }

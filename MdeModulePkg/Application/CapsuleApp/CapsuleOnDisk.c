@@ -398,6 +398,9 @@ GetUpdateHandle(
     }
   }
 
+  //
+  // If no boot options are found on the map, create one boot option for capsule.
+  //
   if (Map != NULL) {
     DevicePath = DuplicateDevicePath(MappedDevicePath);
     Status = GetEfiSysPartitionFromDevPath (DevicePath, &FullPath, Fs);
@@ -411,9 +414,9 @@ GetUpdateHandle(
                0x0100,
                LoadOptionTypeBoot,
                LOAD_OPTION_ACTIVE,
-               L"Capsule On Disk",
+               L"UEFI Capsule On Disk",
                DevicePath,
-               (UINT8 *)&mCapsuleOnDiskBootOptionGuid,
+               (UINT8 *) &mCapsuleOnDiskBootOptionGuid,
                sizeof(EFI_GUID)
                );
     if (!EFI_ERROR(Status)) {
