@@ -775,23 +775,24 @@ CompareFileNameInAlphabet (
   Dump capsule information from disk
 
   @param[in] DevicePath          The device path of disk.
+  @param[in] DumpCapsuleInfo     The flag to indicate whether to dump the capsule inforomation.
 
   @retval EFI_SUCCESS            The capsule information is dumped.
 **/
 EFI_STATUS
 DumpCapsuleFromDisk (
-  IN EFI_SIMPLE_FILE_SYSTEM_PROTOCOL            *Fs
+  IN EFI_SIMPLE_FILE_SYSTEM_PROTOCOL            *Fs,
+  IN BOOLEAN                                    DumpCapsuleInfo
   )
 {
   EFI_STATUS                                    Status;
   EFI_FILE                                      *Root;
   EFI_FILE                                      *DirHandle = NULL;
-//  EFI_FILE                                      *FileHandle = NULL;
+  EFI_FILE                                      *FileHandle = NULL;
   CHAR16                                        *mDirName = L"\\efi\\UpdateCapsule";
-//  CHAR16                                        FileName[50];
   UINTN                                         Index = 0;
-//  UINTN                                         FileSize;
-//  VOID                                          *FileBuffer;
+  UINTN                                         FileSize;
+  VOID                                          *FileBuffer;
   EFI_FILE_INFO                                 **FileInfoBuffer;
   EFI_FILE_INFO                                 *FileInfo;
   UINTN                                         FileCount = 0;
@@ -859,24 +860,22 @@ DumpCapsuleFromDisk (
     Print (L"  %d.%s\n", Index + 1, FileInfoBuffer[Index]->FileName);
   }
 
-#if 0
-  while (TRUE) {
-    UnicodeSPrint (
-      FileName,
-      sizeof (FileName),
-      L"CoDUpdate%d.cap",
-      Index
-      );
+  if (!DumpCapsuleInfo) {
+    return EFI_SUCCESS;
+  }
 
+  Print(L"The infomation of the capsules:\n");
+
+  for (Index = 0; Index < FileCount; Index ++) {
     FileHandle = NULL;
-    Status = DirHandle->Open (DirHandle, &FileHandle, FileName, EFI_FILE_MODE_READ, 0);
+    Status = DirHandle->Open (DirHandle, &FileHandle, FileInfoBuffer[Index]->FileName, EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR(Status)) {
       break;
     }
 
     Status = FileHandleGetSize (FileHandle, (UINT64 *) &FileSize);
     if (EFI_ERROR(Status)) {
-      Print(L"Cannot read file %s. Status = %r\n", FileName, Status);
+      Print(L"Cannot read file %s. Status = %r\n", FileInfoBuffer[Index]->FileName, Status);
       FileHandleClose (FileHandle);
       return Status;
     }
@@ -888,21 +887,20 @@ DumpCapsuleFromDisk (
 
     Status = FileHandleRead (FileHandle, &FileSize, FileBuffer);
     if (EFI_ERROR(Status)) {
-      Print(L"Cannot read file %s. Status = %r\n", FileName, Status);
+      Print(L"Cannot read file %s. Status = %r\n", FileInfoBuffer[Index]->FileName, Status);
       FreePool(FileBuffer);
       FileHandleClose (FileHandle);
       return Status;
     }
 
-    Print(L"###################\n");
-    Print(L"# %s  #\n", FileName);
-    Print(L"###################\n");
+    Print(L"**************************\n");
+    Print (L"  %d.%s:\n", Index + 1, FileInfoBuffer[Index]->FileName);
+    Print(L"**************************\n");
     DumpCapsuleFromBuffer ((EFI_CAPSULE_HEADER *) FileBuffer);
     FileHandleClose (FileHandle);
     FreePool(FileBuffer);
-    Index++;
   }
-#endif
+
   return EFI_SUCCESS;
 }
 
@@ -910,10 +908,12 @@ DumpCapsuleFromDisk (
   Dump capsule inforomation form Gather list.
 
   @param[in]  BlockDescriptors The block descriptors for the capsule images
+  @param[in]  DumpCapsuleInfo  The flag to indicate whether to dump the capsule inforomation.
 **/
 VOID
 DumpBlockDescriptors (
-  IN EFI_CAPSULE_BLOCK_DESCRIPTOR   *BlockDescriptors
+  IN EFI_CAPSULE_BLOCK_DESCRIPTOR   *BlockDescriptors,
+  IN BOOLEAN                        DumpCapsuleInfo
   )
 {
   EFI_CAPSULE_BLOCK_DESCRIPTOR      *TempBlockPtr;
@@ -922,8 +922,14 @@ DumpBlockDescriptors (
 
   while (TRUE) {
     if (TempBlockPtr->Length != 0) {
-//      DumpCapsuleFromBuffer ((EFI_CAPSULE_HEADER *) (UINTN) TempBlockPtr->Union.DataBlock);
+      if (DumpCapsuleInfo) {
+        Print(L"******************************************************\n");
+      }
       Print(L"Capsule data starts at 0x%08x with size 0x%08x\n", TempBlockPtr->Union.DataBlock, TempBlockPtr->Length);
+      if (DumpCapsuleInfo) {
+        Print(L"******************************************************\n");
+        DumpCapsuleFromBuffer ((EFI_CAPSULE_HEADER *) (UINTN) TempBlockPtr->Union.DataBlock);
+      }
       TempBlockPtr += 1;
     } else {
       if (TempBlockPtr->Union.ContinuationPointer == (UINTN)NULL) {
@@ -936,11 +942,13 @@ DumpBlockDescriptors (
 }
 
 /**
-  Dump Provisioned Data.
+  Dump Provisioned Capsule.
+
+  @param[in]  DumpCapsuleInfo  The flag to indicate whether to dump the capsule inforomation.
 **/
 VOID
-DumpProvisionedData (
-  VOID
+DumpProvisionedCapsule (
+  IN BOOLEAN                      DumpCapsuleInfo
   )
 {
   EFI_STATUS                      Status;
@@ -992,7 +1000,7 @@ DumpProvisionedData (
     } else {
       Index ++;
       Print(L"Capsule Description at 0x%08x\n", *CapsuleDataPtr64);
-      DumpBlockDescriptors ((EFI_CAPSULE_BLOCK_DESCRIPTOR*) (UINTN) *CapsuleDataPtr64);
+      DumpBlockDescriptors ((EFI_CAPSULE_BLOCK_DESCRIPTOR*) (UINTN) *CapsuleDataPtr64, DumpCapsuleInfo);
     }
   }
   
@@ -1019,7 +1027,7 @@ DumpProvisionedData (
       if(!EFI_ERROR(Status)) {
         Print (L"Capsules are provisioned on BootOption: %s\n", BootNextOptionEntry.Description);
         Print (L"    %s %s\n", ShellProtocol->GetMapFromDevicePath (&DevicePath), ConvertDevicePathToText(DevicePath, TRUE, TRUE));
-        DumpCapsuleFromDisk (Fs);
+        DumpCapsuleFromDisk (Fs, DumpCapsuleInfo);
       }
     }
   }

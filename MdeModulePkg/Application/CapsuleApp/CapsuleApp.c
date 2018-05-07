@@ -106,11 +106,13 @@ DumpEsrtData (
   );
 
 /**
-  Dump Provisioned Data.
+  Dump Provisioned Capsule.
+
+  @param[in]  DumpCapsuleInfo  The flag to indicate whether to dump the capsule inforomation.
 **/
 VOID
-DumpProvisionedData (
-  VOID
+DumpProvisionedCapsule (
+  IN BOOLEAN                      DumpCapsuleInfo
   );
 
 /**
@@ -715,6 +717,7 @@ PrintUsage (
   Print(L"  CapsuleApp -P\n");
   Print(L"  CapsuleApp -E\n");
   Print(L"  CapsuleApp -L\n");
+  Print(L"  CapsuleApp -L INFO\n");
   Print(L"  CapsuleApp -F\n");
   Print(L"  CapsuleApp -G <BMP> -O <Capsule>\n");
   Print(L"  CapsuleApp -N <Capsule> -O <NestedCapsule>\n");
@@ -835,7 +838,11 @@ UefiMain (
     return EFI_SUCCESS;
   }
   if (StrCmp(Argv[1], L"-L") == 0) {
-    DumpProvisionedData();
+    if (Argc >= 3 && StrCmp(Argv[2], L"INFO") == 0) {
+      DumpProvisionedCapsule(TRUE);
+    } else {
+      DumpProvisionedCapsule(FALSE);
+    }
     return EFI_SUCCESS;
   }
   if (StrCmp(Argv[1], L"-F") == 0) {
@@ -945,7 +952,7 @@ UefiMain (
   if (CapsuleOnDisk) {
     if (CodLastIndex < CodFirstIndex) {
       //
-      // Neither ESP or file name assigned.
+      // Neither ESP nor file name assigned.
       //
       Status = ProcessCapsuleOnDisk (CapsuleBuffer, FileSize, Argv + CapsuleFirstIndex, NULL, NULL, CapsuleNum);
     } else if (CodLastIndex == CodFirstIndex) {
@@ -1010,13 +1017,12 @@ UefiMain (
   Status = EFI_SUCCESS;
 
 Done:
-  for (Index = 0; Index < CapsuleNum; Index++) {
-    if (CapsuleBuffer[Index] != NULL) {
-      FreePool (CapsuleBuffer[Index]);
-    }
-  }
-
   if (EFI_ERROR(Status)) {
+    for (Index = 0; Index < CapsuleNum; Index++) {
+      if (CapsuleBuffer[Index] != NULL) {
+        FreePool (CapsuleBuffer[Index]);
+      }
+    }
     CleanGatherList(BlockDescriptors, CapsuleNum);
   }
 
