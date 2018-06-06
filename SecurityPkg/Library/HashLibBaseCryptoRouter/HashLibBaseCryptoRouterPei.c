@@ -261,6 +261,9 @@ HashCompleteAndExtend (
     if ((HashMask & PcdGet32 (PcdTpm2HashMask)) != 0) {
       HashInterfaceHob->HashInterface[Index].HashUpdate (HashCtx[Index], DataToHash, DataToHashLen);
       HashInterfaceHob->HashInterface[Index].HashFinal (HashCtx[Index], &Digest);
+      if (HashMask == HASH_ALG_SHA384 || HashMask == HASH_ALG_SHA512) {
+        continue;
+      }
       Tpm2SetHashToDigestList (DigestList, &Digest);
     }
   }

@@ -574,6 +574,9 @@ Tpm2GetCapabilitySupportedAndActivePcrs (
     }
   }
 
+  *TpmHashAlgorithmBitmap |= (HASH_ALG_SHA384 | HASH_ALG_SHA512);
+  *ActivePcrBanks         |= (HASH_ALG_SHA384 | HASH_ALG_SHA512);
+
   return Status;
 }
 
