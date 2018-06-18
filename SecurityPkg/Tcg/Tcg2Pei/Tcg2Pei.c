@@ -23,6 +23,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <Ppi/EndOfPeiPhase.h>
 #include <Ppi/FirmwareVolumeInfoMeasurementExcluded.h>
 #include <Ppi/FirmwareVolumeInfoPrehashedFV.h>
+#include <Ppi/MpServices.h>
 
 #include <Guid/TcgEventHob.h>
 #include <Guid/MeasuredFvHob.h>
@@ -77,6 +78,24 @@ UINT32 mMeasuredBaseFvIndex = 0;
 EFI_PLATFORM_FIRMWARE_BLOB *mMeasuredChildFvInfo;
 UINT32 mMeasuredChildFvIndex = 0;
 
+typedef struct {
+  EFI_PLATFORM_FIRMWARE_BLOB ApMeasureBlock;
+  HASH_HANDLE                HashHandle;
+  TPML_DIGEST_VALUES         Digest;
+} MEASURE_TASK;
+
+typedef struct {
+  UINTN                      ProcessorNum;
+  MEASURE_TASK               *TaskEntry;
+} AP_MEASURE_TASK;
+
+AP_MEASURE_TASK             *mApMeasureTaskList;
+MEASURE_TASK                *mMeasureTaskList;
+EFI_PROCESSOR_INFORMATION   *mProcessorLocBuf;
+UINT32 mApNum = 0;
+
+EFI_PEI_MP_SERVICES_PPI    *mMpServices;
+
 /**
   Measure and record the Firmware Volum Information once FvInfoPPI install.
 
@@ -95,6 +114,26 @@ FirmwareVolmeInfoPpiNotifyCallback (
   IN EFI_PEI_NOTIFY_DESCRIPTOR     *NotifyDescriptor,
   IN VOID                          *Ppi
   );
+
+/**
+  Measure and record the Firmware Volum Information once FvInfoPPI install.
+
+  @param[in] PeiServices       An indirect pointer to the EFI_PEI_SERVICES table published by the PEI Foundation.
+  @param[in] NotifyDescriptor  Address of the notification descriptor data structure.
+  @param[in] Ppi               Address of the PPI that was installed.
+
+  @retval EFI_SUCCESS          The FV Info is measured and recorded to TPM.
+  @return Others               Fail to measure FV.
+
+**/
+EFI_STATUS
+EFIAPI
+CpuMpPpiNotifyCallBack (
+  IN EFI_PEI_SERVICES              **PeiServices,
+  IN EFI_PEI_NOTIFY_DESCRIPTOR     *NotifyDescriptor,
+  IN VOID                          *Ppi
+  );
+
 
 /**
   Record all measured Firmware Volum Information into a Guid Hob
@@ -127,11 +166,144 @@ EFI_PEI_NOTIFY_DESCRIPTOR           mNotifyList[] = {
     FirmwareVolmeInfoPpiNotifyCallback 
   },
   {
+    EFI_PEI_PPI_DESCRIPTOR_NOTIFY_CALLBACK,
+    &gEfiPeiMpServicesPpiGuid,
+    CpuMpPpiNotifyCallBack
+  },
+  {
     (EFI_PEI_PPI_DESCRIPTOR_NOTIFY_CALLBACK | EFI_PEI_PPI_DESCRIPTOR_TERMINATE_LIST),
     &gEfiEndOfPeiSignalPpiGuid,
     EndofPeiSignalNotifyCallBack
   }
 };
+
+/**
+  Read FPGA_BBS_PARAM to get the return value of the FPGA loader.
+
+  @param  None
+
+  @retval None
+
+**/
+VOID
+EFIAPI
+ApMeasureFunc (
+  IN VOID *MpServices
+  )
+{
+  EFI_STATUS       Status;
+  UINTN            Index;
+  UINTN            ProcessorNumber;
+  MEASURE_TASK     *ApTaskEntry;
+
+  Status = mMpServices->WhoAmI(
+                          (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
+                          mMpServices,
+                          &ProcessorNumber
+                          );
+  if (EFI_ERROR(Status)) {
+    return;
+  }
+
+  for (Index = 0; Index < mApNum; Index++) {
+    if (mApMeasureTaskList[Index].ProcessorNum == ProcessorNumber) {
+      break;
+    }
+  }
+
+  if (Index == mApNum) {
+    return;
+  }
+
+  ApTaskEntry = mApMeasureTaskList[Index].TaskEntry;
+  HashUpdate(
+    ApTaskEntry->HashHandle,
+    (UINT8 *)(UINTN)ApTaskEntry->ApMeasureBlock.BlobBase, 
+    (UINTN)ApTaskEntry->ApMeasureBlock.BlobLength
+    );
+
+}
+
+/**
+  Record all measured Firmware Volum Information into a Guid Hob
+  Guid Hob payload layout is 
+
+     UINT32 *************************** FIRMWARE_BLOB number
+     EFI_PLATFORM_FIRMWARE_BLOB******** BLOB Array
+
+  @param[in] PeiServices       An indirect pointer to the EFI_PEI_SERVICES table published by the PEI Foundation.
+  @param[in] NotifyDescriptor  Address of the notification descriptor data structure.
+  @param[in] Ppi               Address of the PPI that was installed.
+
+  @retval EFI_SUCCESS          The FV Info is measured and recorded to TPM.
+  @return Others               Fail to measure FV.
+
+**/
+EFI_STATUS
+EFIAPI
+CpuMpPpiNotifyCallBack (
+  IN EFI_PEI_SERVICES              **PeiServices,
+  IN EFI_PEI_NOTIFY_DESCRIPTOR     *NotifyDescriptor,
+  IN VOID                          *Ppi
+  )
+{  
+  EFI_STATUS   Status;
+  UINTN        NumberOfProcessors;
+  UINTN        NumberOfEnabledProcessors;
+  UINTN        Index;
+  UINTN        ApIndex;
+
+  mMpServices = (EFI_PEI_MP_SERVICES_PPI *) Ppi;
+
+
+  Status = mMpServices->GetNumberOfProcessors(PeiServices, mMpServices, &NumberOfProcessors, &NumberOfEnabledProcessors);
+  DEBUG((DEBUG_INFO, "[Tcg2Pei] GetNumberOfProcessors %x, NumOfProcessors %x, NumOfEnabledProcessors %x.\n", Status, NumberOfProcessors, NumberOfEnabledProcessors));
+  if (EFI_ERROR(Status) || NumberOfEnabledProcessors <= 1) {
+    return Status;
+  }
+
+  //
+  // Get each processor Location info
+  //
+  mProcessorLocBuf   = AllocatePool (sizeof(EFI_PROCESSOR_INFORMATION) * NumberOfProcessors);
+  if (mProcessorLocBuf == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  for (Index = 0; Index < NumberOfProcessors; Index++) {
+    Status = mMpServices->GetProcessorInfo (
+                            PeiServices,
+                            mMpServices,
+                            Index,
+                            &mProcessorLocBuf[Index]
+                            );
+    if (EFI_ERROR (Status)) {
+      FreePool (mProcessorLocBuf);
+      return Status;
+    }
+  }
+
+  mApNum             = NumberOfEnabledProcessors - 1;
+  mApMeasureTaskList = AllocateZeroPool(sizeof(AP_MEASURE_TASK) * mApNum);
+  mMeasureTaskList   = AllocatePool(sizeof(AP_MEASURE_TASK) * mApNum);
+  if (mApMeasureTaskList == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  for (Index = 0, ApIndex = 0; Index < NumberOfProcessors && ApIndex < mApNum; Index++) {
+    //
+    // Only record Enabled, Healthy, AP
+    //
+    if ((mProcessorLocBuf[Index].StatusFlag &(PROCESSOR_AS_BSP_BIT|PROCESSOR_ENABLED_BIT|PROCESSOR_HEALTH_STATUS_BIT)) \
+        == (PROCESSOR_ENABLED_BIT|PROCESSOR_HEALTH_STATUS_BIT)) {
+      mApMeasureTaskList[ApIndex].ProcessorNum = Index;
+      mApMeasureTaskList[ApIndex].TaskEntry    = &mMeasureTaskList[ApIndex];
+      ApIndex++;
+    }
+  }
+
+  return EFI_SUCCESS;
+}
 
 
 /**
@@ -473,6 +645,7 @@ MeasureFvImage (
   EDKII_PEI_FIRMWARE_VOLUME_INFO_PREHASHED_FV_PPI       *PrehashedFvPpi;
   HASH_INFO                                             *PreHashInfo;
   UINT32                                                HashAlgoMask;
+  UINTN                                                 SplitBlobLength;
 
   //
   // Check Excluded FV list
@@ -589,16 +762,89 @@ MeasureFvImage (
         );
     }
   } else {
-    //
-    // Hash the FV, extend digest to the TPM and log TCG event
-    //
-    Status = HashLogExtendEvent (
-               0,
-               (UINT8*) (UINTN) FvBlob.BlobBase,
-               (UINTN) FvBlob.BlobLength,
-               &TcgEventHdr,
-               (UINT8*) &FvBlob
-               );
+
+    if (mApNum <= 1 || FvBlob.BlobLength <= 0x1000 * (mApNum - 1)) {
+      //
+      // Hash the FV, extend digest to the TPM and log TCG event
+      //
+      Status = HashLogExtendEvent (
+                 0,
+                 (UINT8*) (UINTN) FvBlob.BlobBase,
+                 (UINTN) FvBlob.BlobLength,
+                 &TcgEventHdr,
+                 (UINT8*) &FvBlob
+                 );
+    } else {
+      //
+      // Clean the Measure Task List. The binding map is not changed
+      //
+      ZeroMem(mMeasureTaskList, sizeof(AP_MEASURE_TASK) * mApNum);
+      //
+      // Split the FV into blocks & use MP service to measure them. Align with page size to get better performance 
+      //
+      SplitBlobLength = DivU64x32(FvBlob.BlobLength, mApNum) & 0xFFFFF000;
+  
+      for (Index = 0; Index < mApNum; Index++) {
+        mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase = FvBlob.BlobBase + SplitBlobLength * Index; 
+        mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength = SplitBlobLength;
+        HashStart(&mApMeasureTaskList[Index].TaskEntry->HashHandle);
+        DEBUG((DEBUG_INFO, "SubBlock Base %x SubBlock Len %x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase,
+                                                                 mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
+      }
+
+      //
+      // Patch last Block Length
+      //
+      mApMeasureTaskList[mApNum - 1].TaskEntry->ApMeasureBlock.BlobLength = FvBlob.BlobLength - SplitBlobLength * (mApNum - 1);
+
+      //
+      // Start all AP to measure parallely
+      //
+      Status = mMpServices->StartupAllAPs(
+                              (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
+                              mMpServices,
+                              (EFI_AP_PROCEDURE) ApMeasureFunc,
+                              FALSE,
+                              0,
+                              NULL
+                              );
+
+      DEBUG((DEBUG_INFO, "[Tcg2Pei] AP measure status %x\n", Status));
+
+      //
+      // Extend each measured Blob piece by piece
+      //
+      for (Index = 0; Index < mApNum; Index++) {
+        //
+        // Hash have been done by APs
+        // Skip hashing step in measure, only extend DigestList to PCR and log event
+        //
+        Status = HashCompleteAndExtend(
+                   mApMeasureTaskList[Index].TaskEntry->HashHandle, 
+                   0,
+                   NULL,
+                   0,
+                   &DigestList
+                   );
+
+        if (!EFI_ERROR(Status)) {
+           Status = LogHashEvent (&DigestList, &TcgEventHdr, (UINT8*) &mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock);
+           DEBUG ((DEBUG_INFO, "The pre-hashed FV which is extended & logged by Tcg2Pei starts at: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
+           DEBUG ((DEBUG_INFO, "The pre-hashed FV which is extended & logged by Tcg2Pei has the size: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
+         } else if (Status == EFI_DEVICE_ERROR) {
+           BuildGuidHob (&gTpmErrorHobGuid,0);
+           REPORT_STATUS_CODE (
+             EFI_ERROR_CODE | EFI_ERROR_MINOR,
+             (PcdGet32 (PcdStatusCodeSubClassTpmDevice) | EFI_P_EC_INTERFACE_ERROR)
+             );
+           //
+           // ToDo: Add resource clean up here
+           //
+           break;
+         }
+
+        } 
+    }
     DEBUG ((DEBUG_INFO, "The FV which is measured by Tcg2Pei starts at: 0x%x\n", FvBlob.BlobBase));
     DEBUG ((DEBUG_INFO, "The FV which is measured by Tcg2Pei has the size: 0x%x\n", FvBlob.BlobLength));
   }
