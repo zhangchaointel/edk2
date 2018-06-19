@@ -285,8 +285,8 @@ CpuMpPpiNotifyCallBack (
 
   mApNum             = NumberOfEnabledProcessors - 1;
   mApMeasureTaskList = AllocateZeroPool(sizeof(AP_MEASURE_TASK) * mApNum);
-  mMeasureTaskList   = AllocatePool(sizeof(AP_MEASURE_TASK) * mApNum);
-  if (mApMeasureTaskList == NULL) {
+  mMeasureTaskList   = AllocatePool(sizeof(MEASURE_TASK) * mApNum);
+  if (mApMeasureTaskList == NULL || mMeasureTaskList == NULL) {
     return EFI_OUT_OF_RESOURCES;
   }
 
@@ -778,25 +778,28 @@ MeasureFvImage (
       //
       // Clean the Measure Task List. The binding map is not changed
       //
-      ZeroMem(mMeasureTaskList, sizeof(AP_MEASURE_TASK) * mApNum);
+      ZeroMem(mMeasureTaskList, sizeof(MEASURE_TASK) * mApNum);
       //
       // Split the FV into blocks & use MP service to measure them. Align with page size to get better performance 
       //
-      SplitBlobLength = DivU64x32(FvBlob.BlobLength, mApNum) & 0xFFFFF000;
-  
+      SplitBlobLength = (DivU64x32(FvBlob.BlobLength, mApNum) & 0xFFFFF000);
+      DEBUG((DEBUG_INFO, "SplitBlobLength %x\n", SplitBlobLength));
+
       for (Index = 0; Index < mApNum; Index++) {
         mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase = FvBlob.BlobBase + SplitBlobLength * Index; 
-        mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength = SplitBlobLength;
+        mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength = (UINT64)SplitBlobLength;
         HashStart(&mApMeasureTaskList[Index].TaskEntry->HashHandle);
-        DEBUG((DEBUG_INFO, "SubBlock Base %x SubBlock Len %x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase,
-                                                                 mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
+        DEBUG((DEBUG_INFO, "SubBlock Base %x ", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
+        DEBUG((DEBUG_INFO, "SubBlock Len %x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
       }
 
       //
       // Patch last Block Length
       //
       mApMeasureTaskList[mApNum - 1].TaskEntry->ApMeasureBlock.BlobLength = FvBlob.BlobLength - SplitBlobLength * (mApNum - 1);
-
+      DEBUG((DEBUG_INFO, "Patched SubBlock Base %x ", mApMeasureTaskList[mApNum - 1].TaskEntry->ApMeasureBlock.BlobBase));
+      DEBUG((DEBUG_INFO, "Patched SubBlock Len %x\n", mApMeasureTaskList[mApNum - 1].TaskEntry->ApMeasureBlock.BlobLength));
+      
       //
       // Start all AP to measure parallely
       //
