@@ -899,8 +899,8 @@ MeasureFvImage (
 
         if (!EFI_ERROR(Status)) {
           Status = LogHashEvent (&DigestList, &TcgEventHdr, (UINT8*) &mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock);
-          DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei starts at: 0x%x ", Index, mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
-          DEBUG ((DEBUG_INFO, "size: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
+          DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei starts at: 0x%x\n", Index, mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
+          DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei size: 0x%x\n", Index, mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
         } else if (Status == EFI_DEVICE_ERROR) {
           BuildGuidHob (&gTpmErrorHobGuid,0);
           REPORT_STATUS_CODE (
