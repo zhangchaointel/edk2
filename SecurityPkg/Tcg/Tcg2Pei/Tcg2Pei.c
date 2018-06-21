@@ -81,6 +81,7 @@ UINT32 mMeasuredChildFvIndex = 0;
 typedef struct {
   EFI_PLATFORM_FIRMWARE_BLOB ApMeasureBlock;
   HASH_HANDLE                HashHandle;
+  EFI_STATUS                 HashStatus;
   TPML_DIGEST_VALUES         Digest;
 } MEASURE_TASK;
 
@@ -211,16 +212,19 @@ ApMeasureFunc (
     }
   }
 
+  //
+  // Doesn't find the AP processor Number. Could be caused by BSP switch.
+  //
   if (Index == mApNum) {
     return;
   }
 
   ApTaskEntry = mApMeasureTaskList[Index].TaskEntry;
-  HashUpdate(
-    ApTaskEntry->HashHandle,
-    (UINT8 *)(UINTN)ApTaskEntry->ApMeasureBlock.BlobBase, 
-    (UINTN)ApTaskEntry->ApMeasureBlock.BlobLength
-    );
+  ApTaskEntry->HashStatus = HashUpdate(
+                              ApTaskEntry->HashHandle,
+                              (UINT8 *)(UINTN)ApTaskEntry->ApMeasureBlock.BlobBase, 
+                              (UINTN)ApTaskEntry->ApMeasureBlock.BlobLength
+                              );
 
 }
 
@@ -810,6 +814,7 @@ MeasureFvImage (
       for (Index = 0; Index < mApNum; Index++) {
         mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase = FvBlob.BlobBase + SplitBlobLength * Index;
         mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength = (UINT64)SplitBlobLength;
+        mApMeasureTaskList[Index].TaskEntry->HashStatus = EFI_NOT_READY;
         HashStart(&mApMeasureTaskList[Index].TaskEntry->HashHandle);
         DEBUG((DEBUG_INFO, "SubBlock Base %x ", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
         DEBUG((DEBUG_INFO, "SubBlock Len %x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
@@ -847,6 +852,11 @@ MeasureFvImage (
         // Hash have been done by APs
         // Skip hashing step in measure, only extend DigestList to PCR and log event
         //
+        if (EFI_ERROR(mApMeasureTaskList[Index].TaskEntry->HashStatus)) {
+          Status = mApMeasureTaskList[Index].TaskEntry->HashStatus;
+          break;
+        }
+
         Status = HashCompleteAndExtend(
                    mApMeasureTaskList[Index].TaskEntry->HashHandle, 
                    0,
@@ -876,13 +886,15 @@ MeasureFvImage (
       PERF_END_EX (mFileHandle, "TcgMp2", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 5);
 
     }
-    DEBUG ((DEBUG_INFO, "The FV which is measured by Tcg2Pei starts at: 0x%x\n", FvBlob.BlobBase));
-    DEBUG ((DEBUG_INFO, "The FV which is measured by Tcg2Pei has the size: 0x%x\n", FvBlob.BlobLength));
+
   }
 
   if (EFI_ERROR(Status)) {
     DEBUG ((DEBUG_ERROR, "The FV which failed to be measured starts at: 0x%x\n", FvBase));
     return Status;
+  } else {
+    DEBUG ((DEBUG_INFO, "The FV which is measured by Tcg2Pei starts at: 0x%x\n", FvBlob.BlobBase));
+    DEBUG ((DEBUG_INFO, "The FV which is measured by Tcg2Pei has the size: 0x%x\n", FvBlob.BlobLength));
   }
 
   //
