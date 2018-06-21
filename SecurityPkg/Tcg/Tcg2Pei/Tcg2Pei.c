@@ -846,6 +846,8 @@ MeasureFvImage (
         mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength = (UINT64)SplitBlobLength;
         mApMeasureTaskList[Index].TaskEntry->HashStatus = EFI_NOT_READY;
         HashStart(&mApMeasureTaskList[Index].TaskEntry->HashHandle);
+
+        DEBUG((DEBUG_INFO, "ProcessNum %x ", mApMeasureTaskList[Index].ProcessorNum));
         DEBUG((DEBUG_INFO, "SubBlock Base %x ", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
         DEBUG((DEBUG_INFO, "SubBlock Len %x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
       }
@@ -897,8 +899,8 @@ MeasureFvImage (
 
         if (!EFI_ERROR(Status)) {
           Status = LogHashEvent (&DigestList, &TcgEventHdr, (UINT8*) &mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock);
-          DEBUG ((DEBUG_INFO, "The piece of FV which is extended & logged by Tcg2Pei starts at: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
-          DEBUG ((DEBUG_INFO, "The piece of FV which is extended & logged by Tcg2Pei has the size: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
+          DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei starts at: 0x%x ", Index, mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
+          DEBUG ((DEBUG_INFO, "size: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
         } else if (Status == EFI_DEVICE_ERROR) {
           BuildGuidHob (&gTpmErrorHobGuid,0);
           REPORT_STATUS_CODE (
