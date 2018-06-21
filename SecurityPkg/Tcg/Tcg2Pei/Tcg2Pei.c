@@ -92,7 +92,7 @@ typedef struct {
 AP_MEASURE_TASK             *mApMeasureTaskList;
 MEASURE_TASK                *mMeasureTaskList;
 EFI_PROCESSOR_INFORMATION   *mProcessorLocBuf;
-UINT32 mApNum = 0;
+UINT32                      mApNum = 0;
 
 EFI_PEI_MP_SERVICES_PPI    *mMpServices;
 
@@ -253,8 +253,11 @@ CpuMpPpiNotifyCallBack (
   UINTN        Index;
   UINTN        ApIndex;
 
-  mMpServices = (EFI_PEI_MP_SERVICES_PPI *) Ppi;
+  if (!PcdGetBool(PcdTcgMpMeasure)){
+    return EFI_SUCCESS;
+  }
 
+  mMpServices = (EFI_PEI_MP_SERVICES_PPI *) Ppi;
 
   Status = mMpServices->GetNumberOfProcessors(PeiServices, mMpServices, &NumberOfProcessors, &NumberOfEnabledProcessors);
   DEBUG((DEBUG_INFO, "[Tcg2Pei] GetNumberOfProcessors %x, NumOfProcessors %x, NumOfEnabledProcessors %x.\n", Status, NumberOfProcessors, NumberOfEnabledProcessors));
@@ -646,6 +649,8 @@ MeasureFvImage (
   HASH_INFO                                             *PreHashInfo;
   UINT32                                                HashAlgoMask;
   UINTN                                                 SplitBlobLength;
+  UINTN                                                 NumberOfProcessors;
+  UINTN                                                 NumberOfEnabledProcessors;
 
   //
   // Check Excluded FV list
@@ -762,10 +767,26 @@ MeasureFvImage (
         );
     }
   } else {
+    //
+    // Make sure mApNum doesn't change during each measurement
+    // if changed or MP PPI failed, force BSP measure only
+    //
+    if (mMpServices != NULL) {
+      Status = mMpServices->GetNumberOfProcessors(
+                              (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
+                              mMpServices, 
+                              &NumberOfProcessors, 
+                              &NumberOfEnabledProcessors
+                              );
 
-    if (mApNum <= 1 || FvBlob.BlobLength <= 0x1000 * (mApNum - 1)) {
+      if (EFI_ERROR(Status)) {
+        mApNum = 0;
+      }
+    }
+
+    if (mApNum <= 1 || FvBlob.BlobLength <= 0x1000 * (mApNum - 1) || (mApNum + 1) != NumberOfEnabledProcessors) {
       //
-      // Hash the FV, extend digest to the TPM and log TCG event
+      // 1. BSP Hash the FV, extend digest to the TPM and log TCG event
       //
       Status = HashLogExtendEvent (
                  0,
@@ -776,17 +797,18 @@ MeasureFvImage (
                  );
     } else {
       //
-      // Clean the Measure Task List. The binding map is not changed
+      // 2. AP Hash the FV simultaneously. BSP extend digest to the TPM and log TCG event 
+      //
+ 
+      PERF_START_EX (mFileHandle, "TcgMp1", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 2);
+      //
+      // --- 2.1 Split the FV into blocks & use MP service to measure them. Align with page size to get better performance 
       //
       ZeroMem(mMeasureTaskList, sizeof(MEASURE_TASK) * mApNum);
-      //
-      // Split the FV into blocks & use MP service to measure them. Align with page size to get better performance 
-      //
       SplitBlobLength = (DivU64x32(FvBlob.BlobLength, mApNum) & 0xFFFFF000);
-      DEBUG((DEBUG_INFO, "SplitBlobLength %x\n", SplitBlobLength));
 
       for (Index = 0; Index < mApNum; Index++) {
-        mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase = FvBlob.BlobBase + SplitBlobLength * Index; 
+        mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase = FvBlob.BlobBase + SplitBlobLength * Index;
         mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength = (UINT64)SplitBlobLength;
         HashStart(&mApMeasureTaskList[Index].TaskEntry->HashHandle);
         DEBUG((DEBUG_INFO, "SubBlock Base %x ", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
@@ -794,14 +816,14 @@ MeasureFvImage (
       }
 
       //
-      // Patch last Block Length
+      //         Patch last Block Length
       //
       mApMeasureTaskList[mApNum - 1].TaskEntry->ApMeasureBlock.BlobLength = FvBlob.BlobLength - SplitBlobLength * (mApNum - 1);
-      DEBUG((DEBUG_INFO, "Patched SubBlock Base %x ", mApMeasureTaskList[mApNum - 1].TaskEntry->ApMeasureBlock.BlobBase));
-      DEBUG((DEBUG_INFO, "Patched SubBlock Len %x\n", mApMeasureTaskList[mApNum - 1].TaskEntry->ApMeasureBlock.BlobLength));
+      DEBUG((DEBUG_INFO, "Patch last SubBlock Base %x ", mApMeasureTaskList[mApNum - 1].TaskEntry->ApMeasureBlock.BlobBase));
+      DEBUG((DEBUG_INFO, "Patch last SubBlock Len %x\n", mApMeasureTaskList[mApNum - 1].TaskEntry->ApMeasureBlock.BlobLength));
       
       //
-      // Start all AP to measure parallely
+      // --- 2.2 Start all AP to measure parallizely
       //
       Status = mMpServices->StartupAllAPs(
                               (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
@@ -811,11 +833,14 @@ MeasureFvImage (
                               0,
                               NULL
                               );
+      PERF_END_EX (mFileHandle, "TcgMp1", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 3);
 
       DEBUG((DEBUG_INFO, "[Tcg2Pei] AP measure status %x\n", Status));
 
+      PERF_START_EX (mFileHandle, "TcgMp2", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 4);
+
       //
-      // Extend each measured Blob piece by piece
+      // --- 2.3 BSP extend and log each measured Blob piece by piece
       //
       for (Index = 0; Index < mApNum; Index++) {
         //
@@ -831,22 +856,25 @@ MeasureFvImage (
                    );
 
         if (!EFI_ERROR(Status)) {
-           Status = LogHashEvent (&DigestList, &TcgEventHdr, (UINT8*) &mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock);
-           DEBUG ((DEBUG_INFO, "The pre-hashed FV which is extended & logged by Tcg2Pei starts at: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
-           DEBUG ((DEBUG_INFO, "The pre-hashed FV which is extended & logged by Tcg2Pei has the size: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
-         } else if (Status == EFI_DEVICE_ERROR) {
-           BuildGuidHob (&gTpmErrorHobGuid,0);
-           REPORT_STATUS_CODE (
-             EFI_ERROR_CODE | EFI_ERROR_MINOR,
-             (PcdGet32 (PcdStatusCodeSubClassTpmDevice) | EFI_P_EC_INTERFACE_ERROR)
-             );
-           //
-           // ToDo: Add resource clean up here
-           //
-           break;
-         }
+          Status = LogHashEvent (&DigestList, &TcgEventHdr, (UINT8*) &mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock);
+          DEBUG ((DEBUG_INFO, "The piece of FV which is extended & logged by Tcg2Pei starts at: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
+          DEBUG ((DEBUG_INFO, "The piece of FV which is extended & logged by Tcg2Pei has the size: 0x%x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
+        } else if (Status == EFI_DEVICE_ERROR) {
+          BuildGuidHob (&gTpmErrorHobGuid,0);
+          REPORT_STATUS_CODE (
+            EFI_ERROR_CODE | EFI_ERROR_MINOR,
+            (PcdGet32 (PcdStatusCodeSubClassTpmDevice) | EFI_P_EC_INTERFACE_ERROR)
+            );
+          //
+          // Skip resources freeing when meet error. It will not break system boot.
+          //
+          break;
+        }
 
-        } 
+      }
+
+      PERF_END_EX (mFileHandle, "TcgMp2", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 5);
+
     }
     DEBUG ((DEBUG_INFO, "The FV which is measured by Tcg2Pei starts at: 0x%x\n", FvBlob.BlobBase));
     DEBUG ((DEBUG_INFO, "The FV which is measured by Tcg2Pei has the size: 0x%x\n", FvBlob.BlobLength));
