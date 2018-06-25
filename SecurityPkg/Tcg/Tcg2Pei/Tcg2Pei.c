@@ -691,6 +691,7 @@ MeasureFvImage (
   HASH_INFO                                             *PreHashInfo;
   UINT32                                                HashAlgoMask;
   UINTN                                                 SplitBlobLength;
+  TPM_PCRINDEX                                          PcrIndex;
 
   //
   // Check Excluded FV list
@@ -799,12 +800,8 @@ MeasureFvImage (
        Status = LogHashEvent (&DigestList, &TcgEventHdr, (UINT8*) &FvBlob);
        DEBUG ((DEBUG_INFO, "The pre-hashed FV which is extended & logged by Tcg2Pei starts at: 0x%x\n", FvBlob.BlobBase));
        DEBUG ((DEBUG_INFO, "The pre-hashed FV which is extended & logged by Tcg2Pei has the size: 0x%x\n", FvBlob.BlobLength));
-    } else if (Status == EFI_DEVICE_ERROR) {
-      BuildGuidHob (&gTpmErrorHobGuid,0);
-      REPORT_STATUS_CODE (
-        EFI_ERROR_CODE | EFI_ERROR_MINOR,
-        (PcdGet32 (PcdStatusCodeSubClassTpmDevice) | EFI_P_EC_INTERFACE_ERROR)
-        );
+    } else {
+      goto FUNC_EXIT;
     }
   } else {
     //
@@ -901,16 +898,11 @@ MeasureFvImage (
           Status = LogHashEvent (&DigestList, &TcgEventHdr, (UINT8*) &mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock);
           DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei starts at: 0x%x\n", Index, mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
           DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei size: 0x%x\n", Index, mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
-        } else if (Status == EFI_DEVICE_ERROR) {
-          BuildGuidHob (&gTpmErrorHobGuid,0);
-          REPORT_STATUS_CODE (
-            EFI_ERROR_CODE | EFI_ERROR_MINOR,
-            (PcdGet32 (PcdStatusCodeSubClassTpmDevice) | EFI_P_EC_INTERFACE_ERROR)
-            );
+        } else {
           //
           // Skip resources freeing when meet error. It will not break system boot.
           //
-          break;
+          goto FUNC_EXIT;
         }
 
       }
@@ -921,8 +913,29 @@ MeasureFvImage (
 
   }
 
+FUNC_EXIT:
+
   if (EFI_ERROR(Status)) {
-    DEBUG ((DEBUG_ERROR, "The FV which failed to be measured starts at: 0x%x\n", FvBase));
+    DEBUG ((DEBUG_ERROR, "The FV which failed to be measured starts at: 0x%x Status %x\n", FvBase, Status));
+
+    if (Status == EFI_DEVICE_ERROR) {
+      BuildGuidHob (&gTpmErrorHobGuid,0);
+      REPORT_STATUS_CODE (
+        EFI_ERROR_CODE | EFI_ERROR_MINOR,
+        (PcdGet32 (PcdStatusCodeSubClassTpmDevice) | EFI_P_EC_INTERFACE_ERROR)
+        );
+    } else {
+      //
+      // PFP error conditions 2.3.2
+      //
+      for (PcrIndex = 0; PcrIndex < 8; PcrIndex++) {
+        Status = MeasureSeparatorEventWithError (PcrIndex);
+        if (EFI_ERROR (Status)) {
+          DEBUG ((EFI_D_ERROR, "Separator Event with Error not Measured. Error!\n"));
+        }
+      }
+
+    } 
     return Status;
   } else {
     DEBUG ((DEBUG_INFO, "The FV which is measured by Tcg2Pei starts at: 0x%x\n", FvBlob.BlobBase));
