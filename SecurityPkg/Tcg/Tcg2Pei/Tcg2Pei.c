@@ -94,8 +94,24 @@ AP_MEASURE_TASK             *mApMeasureTaskList;
 MEASURE_TASK                *mMeasureTaskList;
 EFI_PROCESSOR_INFORMATION   *mProcessorLocBuf;
 UINTN                       mApCount = 0;
+UINTN                       mBspProcessorNum;
 
 EFI_PEI_MP_SERVICES_PPI    *mMpServices;
+
+
+/**
+  Measure and log Separator event with error, and extend the measurement result into a specific PCR.
+
+  @param[in] PCRIndex         PCR index.  
+
+  @retval EFI_SUCCESS         Operation completed successfully.
+  @retval EFI_DEVICE_ERROR    The operation was unsuccessful.
+
+**/
+EFI_STATUS
+MeasureSeparatorEventWithError (
+  IN      TPM_PCRINDEX              PCRIndex
+  );
 
 /**
   Measure and record the Firmware Volum Information once FvInfoPPI install.
@@ -232,6 +248,7 @@ ApMeasureFunc (
   Check if current AP status is consistent with MP state in MpPpi Notification CallBack.
     If AP count changes, can't support MP measure
     If MP PPI error, can't support MP measure
+    If BSP switched, update BSP number & corresponding ApTaskList
 
   @retval EFI_SUCCESS          MP measure can be supported
   @return Others               Can't Support MP measure
@@ -239,11 +256,13 @@ ApMeasureFunc (
 **/
 
 EFI_STATUS
-CheckApStatus()
+CheckMpStatus()
 { 
   EFI_STATUS  Status;
   UINTN       NumberOfProcessors;
   UINTN       NumberOfEnabledProcessors;
+  UINTN       ProcessorNum;
+  UINTN       Index;
 
   Status = mMpServices->GetNumberOfProcessors(
                           (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
@@ -262,6 +281,28 @@ CheckApStatus()
   //
   if ((mApCount + 1) != NumberOfEnabledProcessors) {
     return EFI_UNSUPPORTED;
+  }
+
+  Status = mMpServices->WhoAmI(
+                          (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
+                          mMpServices, 
+                          &ProcessorNum
+                          );
+  if (EFI_ERROR(Status)) {
+    return Status;
+  }
+
+  if (mBspProcessorNum != ProcessorNum) {
+    //
+    // BSP switched, update Procesor number in ApMeasureTaskList
+    //
+    for (Index = 0; Index < mApCount; Index++) {
+      if (mApMeasureTaskList[Index].ProcessorNum == ProcessorNum) {
+        mApMeasureTaskList[Index].ProcessorNum = mBspProcessorNum;
+        mBspProcessorNum = ProcessorNum; 
+        break;
+      }
+    }
   }
 
   return EFI_SUCCESS;
@@ -339,7 +380,9 @@ CpuMpPpiNotifyCallBack (
     //
     // Only record Enabled, Healthy, AP
     //
-    if ((mProcessorLocBuf[Index].StatusFlag &(PROCESSOR_AS_BSP_BIT|PROCESSOR_ENABLED_BIT|PROCESSOR_HEALTH_STATUS_BIT)) \
+    if ((mProcessorLocBuf[Index].StatusFlag & PROCESSOR_AS_BSP_BIT) != 0) {
+      mBspProcessorNum = Index; 
+    } else if ((mProcessorLocBuf[Index].StatusFlag & (PROCESSOR_ENABLED_BIT|PROCESSOR_HEALTH_STATUS_BIT)) \
         == (PROCESSOR_ENABLED_BIT|PROCESSOR_HEALTH_STATUS_BIT)) {
       mApMeasureTaskList[ApIndex].ProcessorNum = Index;
       mApMeasureTaskList[ApIndex].TaskEntry    = &mMeasureTaskList[ApIndex];
@@ -805,11 +848,11 @@ MeasureFvImage (
     }
   } else {
     //
-    // Make sure mApCount doesn't change.
+    // Make sure mApCount doesn't change. Sync BSP processor number
     // if changed or MP PPI failed, force BSP measure only
     //
     if (mMpServices != NULL && mApCount > 1) {
-      Status = CheckApStatus();
+      Status = CheckMpStatus();
       if (EFI_ERROR(Status)) {
         mApCount = 0;
       }
