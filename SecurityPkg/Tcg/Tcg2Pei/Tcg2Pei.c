@@ -195,9 +195,11 @@ EFI_PEI_NOTIFY_DESCRIPTOR           mNotifyList[] = {
 };
 
 /**
-  Read FPGA_BBS_PARAM to get the return value of the FPGA loader.
+  AP Measure Function. Each AP gets its own task from CPU specific data 
+  Note: All the AP will execute this function simultaneously. If user wants to
+  add debug log in this function, debug lib should be MP Safe.
 
-  @param  None
+  @param  Buffer   AP procedure input parameter. Should be NULL here.
 
   @retval None
 
@@ -205,7 +207,7 @@ EFI_PEI_NOTIFY_DESCRIPTOR           mNotifyList[] = {
 VOID
 EFIAPI
 ApMeasureFunc (
-  IN VOID *MpServices
+  IN VOID *Buffer
   )
 {
   EFI_STATUS       Status;
@@ -898,7 +900,7 @@ MeasureFvImage (
       mApMeasureTaskList[mApCount - 1].TaskEntry->ApMeasureBlock.BlobLength = FvBlob.BlobLength - SplitBlobLength * (mApCount - 1);
       DEBUG((DEBUG_INFO, "Patch last SubBlock Base %x ", mApMeasureTaskList[mApCount - 1].TaskEntry->ApMeasureBlock.BlobBase));
       DEBUG((DEBUG_INFO, "Patch last SubBlock Len %x\n", mApMeasureTaskList[mApCount - 1].TaskEntry->ApMeasureBlock.BlobLength));
-      
+
       //
       // --- 2.2 Start all AP to measure parallizely
       //
