@@ -435,12 +435,14 @@ GetProcessorNumber (
   UINTN                   TotalProcessorNumber;
   UINTN                   Index;
   CPU_INFO_IN_HOB         *CpuInfoInHob;
+  UINT32                  MyApicId;
 
+  MyApicId = GetApicId();
   CpuInfoInHob = (CPU_INFO_IN_HOB *) (UINTN) CpuMpData->CpuInfoInHob;
 
   TotalProcessorNumber = CpuMpData->CpuCount;
   for (Index = 0; Index < TotalProcessorNumber; Index ++) {
-    if (CpuInfoInHob[Index].ApicId == GetApicId ()) {
+    if (CpuInfoInHob[Index].ApicId == MyApicId) {
       *ProcessorNumber = Index;
       return EFI_SUCCESS;
     }
