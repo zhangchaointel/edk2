@@ -79,24 +79,16 @@ EFI_PLATFORM_FIRMWARE_BLOB *mMeasuredChildFvInfo;
 UINT32 mMeasuredChildFvIndex = 0;
 
 typedef struct {
-  EFI_PLATFORM_FIRMWARE_BLOB ApMeasureBlock;
+  UINTN                      ProcessorNum;
   HASH_HANDLE                HashHandle;
   EFI_STATUS                 HashStatus;
   TPML_DIGEST_VALUES         Digest;
-} MEASURE_TASK;
+  EFI_PLATFORM_FIRMWARE_BLOB MeasureBlob;
+} TASK_ENTRY;
 
-typedef struct {
-  UINTN                      ProcessorNum;
-  MEASURE_TASK               *TaskEntry;
-} AP_MEASURE_TASK;
-
-AP_MEASURE_TASK             *mApMeasureTaskList;
-MEASURE_TASK                *mMeasureTaskList;
-EFI_PROCESSOR_INFORMATION   *mProcessorLocBuf;
-UINTN                       mApCount = 0;
-UINTN                       mBspProcessorNum;
-
-EFI_PEI_MP_SERVICES_PPI    *mMpServices;
+TASK_ENTRY                  *mTaskBuf;
+UINT8                       mBlockCount = 1;
+EFI_PEI_MP_SERVICES_PPI     *mMpServices;
 
 
 /**
@@ -213,7 +205,6 @@ ApMeasureFunc (
   EFI_STATUS       Status;
   UINTN            Index;
   UINTN            ProcessorNumber;
-  MEASURE_TASK     *ApTaskEntry;
 
   Status = mMpServices->WhoAmI(
                           (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
@@ -224,90 +215,15 @@ ApMeasureFunc (
     return;
   }
 
-  for (Index = 0; Index < mApCount; Index++) {
-    if (mApMeasureTaskList[Index].ProcessorNum == ProcessorNumber) {
-      break;
-    }
+  for (Index = 0; Index < mBlockCount; Index++) {
+    if (ProcessorNumber == mTaskBuf[Index].ProcessorNum) {
+      mTaskBuf[Index].HashStatus = HashUpdate(
+                                     mTaskBuf[Index].HashHandle,
+                                     (UINT8 *)(UINTN)mTaskBuf[Index].MeasureBlob.BlobBase, 
+                                     (UINTN)mTaskBuf[Index].MeasureBlob.BlobLength
+                                     );
+    }                                
   }
-
-  //
-  // Doesn't find the AP processor Number
-  //
-  if (Index == mApCount) {
-    return;
-  }
-
-  ApTaskEntry = mApMeasureTaskList[Index].TaskEntry;
-  ApTaskEntry->HashStatus = HashUpdate(
-                              ApTaskEntry->HashHandle,
-                              (UINT8 *)(UINTN)ApTaskEntry->ApMeasureBlock.BlobBase, 
-                              (UINTN)ApTaskEntry->ApMeasureBlock.BlobLength
-                              );
-
-}
-
-/**
-  Check if current AP status is consistent with MP state in MpPpi Notification CallBack.
-    If AP count changes, can't support MP measure
-    If MP PPI error, can't support MP measure
-    If BSP switched, update BSP number & corresponding ApTaskList
-
-  @retval EFI_SUCCESS          MP measure can be supported
-  @return Others               Can't Support MP measure
-
-**/
-
-EFI_STATUS
-CheckMpStatus()
-{ 
-  EFI_STATUS  Status;
-  UINTN       NumberOfProcessors;
-  UINTN       NumberOfEnabledProcessors;
-  UINTN       ProcessorNum;
-  UINTN       Index;
-
-  Status = mMpServices->GetNumberOfProcessors(
-                          (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
-                          mMpServices, 
-                          &NumberOfProcessors, 
-                          &NumberOfEnabledProcessors
-                          );
-
-  if (EFI_ERROR(Status)) {
-    return Status;
-  }
-
-  //
-  // AP is disabled, which impacts finial measure result. 
-  // Do not support MP Measure anymore
-  //
-  if ((mApCount + 1) != NumberOfEnabledProcessors) {
-    return EFI_UNSUPPORTED;
-  }
-
-  Status = mMpServices->WhoAmI(
-                          (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
-                          mMpServices, 
-                          &ProcessorNum
-                          );
-  if (EFI_ERROR(Status)) {
-    return Status;
-  }
-
-  if (mBspProcessorNum != ProcessorNum) {
-    //
-    // BSP switched, update Procesor number in ApMeasureTaskList
-    //
-    for (Index = 0; Index < mApCount; Index++) {
-      if (mApMeasureTaskList[Index].ProcessorNum == ProcessorNum) {
-        mApMeasureTaskList[Index].ProcessorNum = mBspProcessorNum;
-        mBspProcessorNum = ProcessorNum; 
-        break;
-      }
-    }
-  }
-
-  return EFI_SUCCESS;
 }
 
 /**
@@ -333,64 +249,21 @@ CpuMpPpiNotifyCallBack (
   IN VOID                          *Ppi
   )
 {  
-  EFI_STATUS   Status;
-  UINTN        NumberOfProcessors;
-  UINTN        NumberOfEnabledProcessors;
-  UINTN        Index;
-  UINTN        ApIndex;
-
-  if (!PcdGetBool(PcdTcgMpMeasure)){
+  //
+  // If PcdTcgMpBootBlockCount == 1,  measure entire FV on BSP
+  //
+  mBlockCount = PcdGet8(PcdTcgMpBootBlockCount);
+  if (mBlockCount <= 1) {
+    mBlockCount = 1;
     return EFI_SUCCESS;
   }
 
+  mTaskBuf = AllocateZeroPool(sizeof(TASK_ENTRY) * mBlockCount);
+  if (mTaskBuf == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
   mMpServices = (EFI_PEI_MP_SERVICES_PPI *) Ppi;
-
-  Status = mMpServices->GetNumberOfProcessors(PeiServices, mMpServices, &NumberOfProcessors, &NumberOfEnabledProcessors);
-  DEBUG((DEBUG_INFO, "[Tcg2Pei] GetNumberOfProcessors %x, NumOfProcessors %x, NumOfEnabledProcessors %x.\n", Status, NumberOfProcessors, NumberOfEnabledProcessors));
-  if (EFI_ERROR(Status) || NumberOfEnabledProcessors <= 1) {
-    return Status;
-  }
-
-  //
-  // Get each processor Location info
-  //
-  mProcessorLocBuf   = AllocatePool (sizeof(EFI_PROCESSOR_INFORMATION) * NumberOfProcessors);
-  if (mProcessorLocBuf == NULL) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  for (Index = 0; Index < NumberOfProcessors; Index++) {
-    Status = mMpServices->GetProcessorInfo (
-                            PeiServices,
-                            mMpServices,
-                            Index,
-                            &mProcessorLocBuf[Index]
-                            );
-    if (EFI_ERROR (Status)) {
-      return Status;
-    }
-  }
-
-  mApCount           = NumberOfEnabledProcessors - 1;
-  mApMeasureTaskList = AllocateZeroPool(sizeof(AP_MEASURE_TASK) * mApCount);
-  mMeasureTaskList   = AllocatePool(sizeof(MEASURE_TASK) * mApCount);
-  if (mApMeasureTaskList == NULL || mMeasureTaskList == NULL) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  for (Index = 0, ApIndex = 0; Index < NumberOfProcessors && ApIndex < mApCount; Index++) {
-    //
-    // Only record Enabled, Healthy, AP
-    //
-    if ((mProcessorLocBuf[Index].StatusFlag & PROCESSOR_AS_BSP_BIT) != 0) {
-      mBspProcessorNum = Index; 
-    } else if ((mProcessorLocBuf[Index].StatusFlag & (PROCESSOR_ENABLED_BIT|PROCESSOR_HEALTH_STATUS_BIT)) \
-        == (PROCESSOR_ENABLED_BIT|PROCESSOR_HEALTH_STATUS_BIT)) {
-      mApMeasureTaskList[ApIndex].ProcessorNum = Index;
-      mApMeasureTaskList[ApIndex].TaskEntry    = &mMeasureTaskList[ApIndex];
-      ApIndex++;
-    }
-  }
 
   return EFI_SUCCESS;
 }
@@ -724,6 +597,7 @@ MeasureFvImage (
   )
 {
   UINT32                                                Index;
+  UINTN                                                 ProcessorIndex;
   EFI_STATUS                                            Status;
   EFI_PLATFORM_FIRMWARE_BLOB                            FvBlob;
   TCG_PCR_EVENT_HDR                                     TcgEventHdr;
@@ -737,6 +611,10 @@ MeasureFvImage (
   UINT32                                                HashAlgoMask;
   UINTN                                                 SplitBlobLength;
   TPM_PCRINDEX                                          PcrIndex;
+  UINTN                                                 NumberOfProcessors;
+  UINTN                                                 NumberOfEnabledProcessors;
+  EFI_PROCESSOR_INFORMATION                             ProcessorInfo;
+  BOOLEAN                                               EnabledApFound;
 
   //
   // Check Excluded FV list
@@ -849,20 +727,10 @@ MeasureFvImage (
       goto FUNC_EXIT;
     }
   } else {
-    //
-    // Make sure mApCount doesn't change. Sync BSP processor number
-    // if changed or MP PPI failed, force BSP measure only
-    //
-    if (mMpServices != NULL && mApCount > 1) {
-      Status = CheckMpStatus();
-      if (EFI_ERROR(Status)) {
-        mApCount = 0;
-      }
-    }
 
-    if (mApCount <= 1 || FvBlob.BlobLength <= 0x1000 * (mApCount - 1)) {
+    if (mMpServices == NULL || FvBlob.BlobLength <= 0x1000 * (mBlockCount - 1)) {
       //
-      // 1. BSP Hash the FV, extend digest to the TPM and log TCG event
+      // 1. BSP Hash the entire FV, extend digest to the TPM and log TCG event
       //
       Status = HashLogExtendEvent (
                  0,
@@ -875,64 +743,125 @@ MeasureFvImage (
       //
       // 2. AP Hash the FV simultaneously. BSP extend digest to the TPM and log TCG event 
       //
- 
       PERF_START_EX (mFileHandle, "TcgMp1", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 2);
+
+      Status = mMpServices->GetNumberOfProcessors(
+                              (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
+                              mMpServices,
+                              &NumberOfProcessors,
+                              &NumberOfEnabledProcessors
+                              );
+      ASSERT(!EFI_ERROR(Status) && NumberOfEnabledProcessors > 1);
+
       //
       // --- 2.1 Split the FV into blocks & use MP service to measure them. Align with page size to get better performance 
       //
-      ZeroMem(mMeasureTaskList, sizeof(MEASURE_TASK) * mApCount);
-      SplitBlobLength = (DivU64x32(FvBlob.BlobLength, mApCount) & 0xFFFFF000);
+      ZeroMem(mTaskBuf, sizeof(TASK_ENTRY) * mBlockCount);
+      SplitBlobLength = (DivU64x32(FvBlob.BlobLength, mBlockCount) & 0xFFFFF000);
 
-      for (Index = 0; Index < mApCount; Index++) {
-        mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase = FvBlob.BlobBase + SplitBlobLength * Index;
-        mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength = (UINT64)SplitBlobLength;
-        mApMeasureTaskList[Index].TaskEntry->HashStatus = EFI_NOT_READY;
-        HashStart(&mApMeasureTaskList[Index].TaskEntry->HashHandle);
+      Index          = 0;
+      ProcessorIndex = 0;
+      EnabledApFound = FALSE;
+      while(Index < mBlockCount) {
+        while (NumberOfEnabledProcessors > 1) {
+          //
+          // If enabled AP avaible, reset processor Index to apply more taskes to APs.
+          //
+          if (ProcessorIndex >= NumberOfProcessors) {
+            if (EnabledApFound == FALSE) {
+              break;
+            }
+            ProcessorIndex = 0;
+          }
 
-        DEBUG((DEBUG_INFO, "ProcessNum %x ", mApMeasureTaskList[Index].ProcessorNum));
-        DEBUG((DEBUG_INFO, "SubBlock Base %x ", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
-        DEBUG((DEBUG_INFO, "SubBlock Len %x\n", mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
+          Status = mMpServices->GetProcessorInfo (
+                                  (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
+                                   mMpServices,
+                                   ProcessorIndex,
+                                   &ProcessorInfo
+                                   );
+
+          if (!EFI_ERROR(Status)) {
+            ProcessorIndex++;
+            if ((ProcessorInfo.StatusFlag & (PROCESSOR_AS_BSP_BIT|PROCESSOR_ENABLED_BIT|PROCESSOR_HEALTH_STATUS_BIT)) \
+                == (PROCESSOR_ENABLED_BIT|PROCESSOR_HEALTH_STATUS_BIT)) {
+              mTaskBuf[Index].ProcessorNum = ProcessorIndex - 1;
+              EnabledApFound = TRUE;
+
+              DEBUG((DEBUG_INFO, "ProcessNum %x ", mTaskBuf[Index].ProcessorNum));
+              break;
+            }
+          } else {
+            goto FUNC_EXIT;
+          }
+        }
+
+        mTaskBuf[Index].MeasureBlob.BlobBase   = FvBlob.BlobBase + SplitBlobLength * Index;
+        mTaskBuf[Index].MeasureBlob.BlobLength = (UINT64)SplitBlobLength;
+        mTaskBuf[Index].HashStatus             = EFI_NOT_READY;
+        HashStart(&mTaskBuf[Index].HashHandle);
+
+        DEBUG((DEBUG_INFO, "SubBlock Base %x ", mTaskBuf[Index].MeasureBlob.BlobBase));
+        DEBUG((DEBUG_INFO, "SubBlock Len %x\n", mTaskBuf[Index].MeasureBlob.BlobLength));
+
+        Index++;
       }
 
       //
       //         Patch last Block Length
       //
-      mApMeasureTaskList[mApCount - 1].TaskEntry->ApMeasureBlock.BlobLength = FvBlob.BlobLength - SplitBlobLength * (mApCount - 1);
-      DEBUG((DEBUG_INFO, "Patch last SubBlock Base %x ", mApMeasureTaskList[mApCount - 1].TaskEntry->ApMeasureBlock.BlobBase));
-      DEBUG((DEBUG_INFO, "Patch last SubBlock Len %x\n", mApMeasureTaskList[mApCount - 1].TaskEntry->ApMeasureBlock.BlobLength));
+      mTaskBuf[mBlockCount - 1].MeasureBlob.BlobLength = FvBlob.BlobLength - SplitBlobLength * (mBlockCount - 1);
+      DEBUG((DEBUG_INFO, "Patch last SubBlock Base %x ", mTaskBuf[mBlockCount - 1].MeasureBlob.BlobBase));
+      DEBUG((DEBUG_INFO, "Patch last SubBlock Len %x\n", mTaskBuf[mBlockCount - 1].MeasureBlob.BlobLength));
 
       //
-      // --- 2.2 Start all AP to measure parallizely
+      // Hash each BootBlob pieces 
       //
-      Status = mMpServices->StartupAllAPs(
-                              (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
-                              mMpServices,
-                              (EFI_AP_PROCEDURE) ApMeasureFunc,
-                              FALSE,
-                              0,
-                              NULL
-                              );
+      if (EnabledApFound) {
+        //
+        // --- 2.2 Start all AP to measure parallizely
+        //
+        Status = mMpServices->StartupAllAPs(
+                                (EFI_PEI_SERVICES **) GetPeiServicesTablePointer (),
+                                mMpServices,
+                                (EFI_AP_PROCEDURE) ApMeasureFunc,
+                                FALSE,
+                                0,
+                                NULL
+                                );
+
+        DEBUG((DEBUG_INFO, "[Tcg2Pei] AP measure status %x\n", Status));
+      } else {
+        //
+        // Corner case, No active AP found, Use BSP to measure every task pieces
+        //
+        for (Index = 0; Index < mBlockCount; Index++) {
+          mTaskBuf[Index].HashStatus = HashUpdate(
+                                         mTaskBuf[Index].HashHandle,
+                                         (UINT8 *)(UINTN)mTaskBuf[Index].MeasureBlob.BlobBase, 
+                                         (UINTN)mTaskBuf[Index].MeasureBlob.BlobLength
+                                         );
+        }
+      }
       PERF_END_EX (mFileHandle, "TcgMp1", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 3);
-
-      DEBUG((DEBUG_INFO, "[Tcg2Pei] AP measure status %x\n", Status));
 
       PERF_START_EX (mFileHandle, "TcgMp2", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 4);
 
       //
       // --- 2.3 BSP extend and log each measured Blob piece by piece
       //
-      for (Index = 0; Index < mApCount; Index++) {
+      for (Index = 0; Index < mBlockCount; Index++) {
         //
         // Hash have been done by APs
         // Skip hashing step in measure, only extend DigestList to PCR and log event
         //
-        if (EFI_ERROR(mApMeasureTaskList[Index].TaskEntry->HashStatus)) {
-          Status = mApMeasureTaskList[Index].TaskEntry->HashStatus;
+        if (EFI_ERROR(mTaskBuf[Index].HashStatus)) {
+          Status = mTaskBuf[Index].HashStatus;
           break;
         }
 
-        Status = HashCompleteAndExtend(
-                   mApMeasureTaskList[Index].TaskEntry->HashHandle, 
+        Status = HashCompleteAndExtend (
+                   mTaskBuf[Index].HashHandle,
                    0,
                    NULL,
                    0,
@@ -940,9 +869,9 @@ MeasureFvImage (
                    );
 
         if (!EFI_ERROR(Status)) {
-          Status = LogHashEvent (&DigestList, &TcgEventHdr, (UINT8*) &mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock);
-          DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei starts at: 0x%x\n", Index, mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobBase));
-          DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei size: 0x%x\n", Index, mApMeasureTaskList[Index].TaskEntry->ApMeasureBlock.BlobLength));
+          Status = LogHashEvent (&DigestList, &TcgEventHdr, (UINT8*) &mTaskBuf[Index].MeasureBlob);
+          DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei starts at: 0x%x\n", Index, mTaskBuf[Index].MeasureBlob.BlobBase));
+          DEBUG ((DEBUG_INFO, "The %d piece of FV which is extended & logged by Tcg2Pei size: 0x%x\n", Index, mTaskBuf[Index].MeasureBlob.BlobLength));
         } else {
           //
           // Skip resources freeing when meet error. It will not break system boot.
@@ -953,9 +882,7 @@ MeasureFvImage (
       }
 
       PERF_END_EX (mFileHandle, "TcgMp2", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 5);
-
     }
-
   }
 
 FUNC_EXIT:

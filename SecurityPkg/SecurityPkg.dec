@@ -456,10 +456,10 @@
   # @Prompt Possible TPM2 Interrupt Number buffer
   gEfiSecurityPkgTokenSpaceGuid.PcdTpm2PossibleIrqNumBuf|{0x00, 0x00, 0x00, 0x00}|VOID*|0x0001001D
 
-  ## Indicate platform possible TPM2 Interrupt Number reported by _PRS control method.<BR><BR>
+  ## Indicate how many boot blocks should SRTM split to measure when measuring one FV.<BR><BR>
   # Possible TPM2 Interrupt Number Buffer will not be reported if TPM2 Interrupt feature is disabled.<BR>
-  # @Prompt Possible TPM2 Interrupt Number buffer
-  gEfiSecurityPkgTokenSpaceGuid.PcdTcgMpMeasure|TRUE|BOOLEAN|0x00010020
+  # @Prompt How many boot blocks should SRTM split
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcgMpBootBlockCount|0x01|UINT8|0x00010020
 
 [PcdsDynamic, PcdsDynamicEx]
 

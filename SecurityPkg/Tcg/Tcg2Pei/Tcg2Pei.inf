@@ -89,7 +89,7 @@
   ## SOMETIMES_CONSUMES
   ## SOMETIMES_PRODUCES
   gEfiSecurityPkgTokenSpaceGuid.PcdTpm2HashMask
-  gEfiSecurityPkgTokenSpaceGuid.PcdTcgMpMeasure                        ## CONSUMES
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcgMpBootBlockCount                 ## CONSUMES
 
 [Depex]
   gEfiPeiMasterBootModePpiGuid AND
