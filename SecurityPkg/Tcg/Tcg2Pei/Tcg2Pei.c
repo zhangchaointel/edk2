@@ -732,6 +732,8 @@ MeasureFvImage (
       //
       // 1. BSP Hash the entire FV, extend digest to the TPM and log TCG event
       //
+      PERF_START_EX (mFileHandle, "TcgMp0", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 2);
+
       Status = HashLogExtendEvent (
                  0,
                  (UINT8*) (UINTN) FvBlob.BlobBase,
@@ -739,6 +741,8 @@ MeasureFvImage (
                  &TcgEventHdr,
                  (UINT8*) &FvBlob
                  );
+      PERF_END_EX (mFileHandle, "TcgMp0", "Tcg2Pei", AsmReadTsc(), PERF_ID_TCG2_PEI + 3);
+
     } else {
       //
       // 2. AP Hash the FV simultaneously. BSP extend digest to the TPM and log TCG event 
