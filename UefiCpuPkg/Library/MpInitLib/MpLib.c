@@ -582,6 +582,7 @@ ApWakeupFunction (
   CPU_INFO_IN_HOB            *CpuInfoInHob;
   UINT64                     ApTopOfStack;
   UINTN                      CurrentApicMode;
+  IA32_DESCRIPTOR            BackupIdtDescriptor;
 
   //
   // AP finished assembly code and begin to execute C code
@@ -655,6 +656,8 @@ ApWakeupFunction (
         Parameter = (VOID *) CpuMpData->CpuData[ProcessorNumber].ApFunctionArgument;
         if (Procedure != NULL) {
           SetApState (&CpuMpData->CpuData[ProcessorNumber], CpuStateBusy);
+          AsmReadIdtr (&BackupIdtDescriptor);
+          AsmWriteIdtr (&CpuMpData->IdtrProfile);
           //
           // Enable source debugging on AP function
           //         
@@ -720,6 +723,7 @@ ApWakeupFunction (
         CpuPause ();
       }
     }
+    AsmWriteIdtr (&BackupIdtDescriptor);
     while (TRUE) {
       DisableInterrupts ();
       if (CpuMpData->ApLoopMode == ApInMwaitLoop) {
@@ -995,8 +999,12 @@ WakeUpAP (
     //
     // Get AP target C-state each time when waking up AP,
     // for it maybe updated by platform again
+    // PcdCpuApTargetCstate token is differnt in FSP and FSP wrapper.
+    // This value may be changed in DXE. Don't check it in PEI.
     //
-    CpuMpData->ApTargetCState = PcdGet8 (PcdCpuApTargetCstate);
+    if (sizeof (UINTN) == sizeof (UINT64)) {
+      CpuMpData->ApTargetCState = PcdGet8 (PcdCpuApTargetCstate);
+    }
   }
 
   ExchangeInfo = CpuMpData->MpCpuExchangeInfo;
@@ -2158,7 +2166,8 @@ StartupAllAPsWorker (
                                );
   CpuMpData->TotalTime     = 0;
   CpuMpData->WaitEvent     = WaitEvent;
-
+  // FSP and Wrapper may have different Idtr. Backup Idtr
+  AsmReadIdtr ((IA32_DESCRIPTOR *) &CpuMpData->IdtrProfile);
   if (!SingleThread) {
     WakeUpAP (CpuMpData, TRUE, 0, Procedure, ProcedureArgument);
   } else {

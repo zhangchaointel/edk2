@@ -245,6 +245,7 @@ struct _CPU_MP_DATA {
   BOOLEAN                        TimerInterruptState;
   UINT64                         MicrocodePatchAddress;
   UINT64                         MicrocodePatchRegionSize;
+  IA32_DESCRIPTOR                IdtrProfile;
 };
 
 extern EFI_GUID mCpuInitMpLibHobGuid;
