@@ -46,6 +46,9 @@
   IoLib
   TimerLib
   DebugLib
+  PcdLib
 
 [Pcd]
-  gEfiSecurityPkgTokenSpaceGuid.PcdTpmBaseAddress        ## CONSUMES
+  gEfiSecurityPkgTokenSpaceGuid.PcdTpmBaseAddress          ## CONSUMES
+  gEfiSecurityPkgTokenSpaceGuid.PcdActiveTpmInterfaceType  ## PRODUCES
+  gEfiSecurityPkgTokenSpaceGuid.PcdCRBIdleByPass             ## PRODUCES
