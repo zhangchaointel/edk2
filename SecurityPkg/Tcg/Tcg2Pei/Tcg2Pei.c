@@ -72,6 +72,12 @@ EFI_PEI_PPI_DESCRIPTOR  mTpmInitializationDonePpiList = {
   NULL
 };
 
+EFI_PEI_PPI_DESCRIPTOR  mTcgMpReadyPpiList = {
+  EFI_PEI_PPI_DESCRIPTOR_PPI | EFI_PEI_PPI_DESCRIPTOR_TERMINATE_LIST,
+  &gEdkiiTcgMpReadyPpiGuid,
+  NULL
+};
+
 EFI_PLATFORM_FIRMWARE_BLOB *mMeasuredBaseFvInfo;
 UINT32 mMeasuredBaseFvIndex = 0;
 
@@ -87,8 +93,8 @@ typedef struct {
 } TASK_ENTRY;
 
 TASK_ENTRY                  *mTaskBuf;
-UINT8                       mBlockCount  = 1;
-EFI_PEI_MP_SERVICES_PPI     *mMpServices = NULL;
+UINT8                       mBlockCount = 1;
+EFI_PEI_MP_SERVICES_PPI     *mMpServices;
 
 
 /**
@@ -125,6 +131,26 @@ FirmwareVolmeInfoPpiNotifyCallback (
   );
 
 /**
+  Measure and record the Firmware Volum Information once FvInfoPPI install.
+
+  @param[in] PeiServices       An indirect pointer to the EFI_PEI_SERVICES table published by the PEI Foundation.
+  @param[in] NotifyDescriptor  Address of the notification descriptor data structure.
+  @param[in] Ppi               Address of the PPI that was installed.
+
+  @retval EFI_SUCCESS          The FV Info is measured and recorded to TPM.
+  @return Others               Fail to measure FV.
+
+**/
+EFI_STATUS
+EFIAPI
+CpuMpPpiNotifyCallBack (
+  IN EFI_PEI_SERVICES              **PeiServices,
+  IN EFI_PEI_NOTIFY_DESCRIPTOR     *NotifyDescriptor,
+  IN VOID                          *Ppi
+  );
+
+
+/**
   Record all measured Firmware Volum Information into a Guid Hob
 
   @param[in] PeiServices       An indirect pointer to the EFI_PEI_SERVICES table published by the PEI Foundation.
@@ -153,6 +179,11 @@ EFI_PEI_NOTIFY_DESCRIPTOR           mNotifyList[] = {
     EFI_PEI_PPI_DESCRIPTOR_NOTIFY_CALLBACK,
     &gEfiPeiFirmwareVolumeInfo2PpiGuid,
     FirmwareVolmeInfoPpiNotifyCallback 
+  },
+  {
+    EFI_PEI_PPI_DESCRIPTOR_NOTIFY_CALLBACK,
+    &gEfiPeiMpServicesPpiGuid,
+    CpuMpPpiNotifyCallBack
   },
   {
     (EFI_PEI_PPI_DESCRIPTOR_NOTIFY_CALLBACK | EFI_PEI_PPI_DESCRIPTOR_TERMINATE_LIST),
@@ -200,6 +231,57 @@ ApMeasureFunc (
     }                                
   }
 }
+
+/**
+  Record all measured Firmware Volum Information into a Guid Hob
+  Guid Hob payload layout is 
+
+     UINT32 *************************** FIRMWARE_BLOB number
+     EFI_PLATFORM_FIRMWARE_BLOB******** BLOB Array
+
+  @param[in] PeiServices       An indirect pointer to the EFI_PEI_SERVICES table published by the PEI Foundation.
+  @param[in] NotifyDescriptor  Address of the notification descriptor data structure.
+  @param[in] Ppi               Address of the PPI that was installed.
+
+  @retval EFI_SUCCESS          The FV Info is measured and recorded to TPM.
+  @return Others               Fail to measure FV.
+
+**/
+EFI_STATUS
+EFIAPI
+CpuMpPpiNotifyCallBack (
+  IN EFI_PEI_SERVICES              **PeiServices,
+  IN EFI_PEI_NOTIFY_DESCRIPTOR     *NotifyDescriptor,
+  IN VOID                          *Ppi
+  )
+{
+  EFI_STATUS Status;
+
+  //
+  // If PcdTcgMpBootBlockCount == 1,  measure entire FV on BSP
+  //
+  mBlockCount = PcdGet8(PcdTcgMpBootBlockCount);
+  if (mBlockCount <= 1) {
+    mBlockCount = 1;
+    return EFI_SUCCESS;
+  }
+
+  mTaskBuf = AllocateZeroPool(sizeof(TASK_ENTRY) * mBlockCount);
+  if (mTaskBuf == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  mMpServices = (EFI_PEI_MP_SERVICES_PPI *) Ppi;
+
+  //
+  // Install FspSiliconInitDonePpi so that any other driver can consume this info.
+  //
+  Status = PeiServicesInstallPpi (&mTcgMpReadyPpiList);
+  ASSERT_EFI_ERROR(Status);
+
+  return EFI_SUCCESS;
+}
+
 
 /**
   Record all measured Firmware Volum Information into a Guid Hob
@@ -659,18 +741,6 @@ MeasureFvImage (
       goto FUNC_EXIT;
     }
   } else {
-    //
-    // If MP Measure is required, check if CPU MP Ppi is ready for use 
-    //
-    if (mMpServices == NULL && mBlockCount > 1) {
-      Status = PeiServicesLocatePpi (
-                 &gEfiPeiMpServicesPpiGuid,
-                 0,
-                 NULL,
-                 (VOID**) &mMpServices
-                 );
-      DEBUG ((DEBUG_INFO, "Get CpuMpPpi State 0x%x\n", Status));
-    }
 
     if (mMpServices == NULL || FvBlob.BlobLength <= 0x1000 * (mBlockCount - 1)) {
       //
@@ -1015,24 +1085,7 @@ PeimEntryMP (
   ASSERT (mMeasuredBaseFvInfo != NULL);
   mMeasuredChildFvInfo = (EFI_PLATFORM_FIRMWARE_BLOB *) AllocateZeroPool (sizeof (EFI_PLATFORM_FIRMWARE_BLOB) * PcdGet32 (PcdPeiCoreMaxFvSupported));
   ASSERT (mMeasuredChildFvInfo != NULL);
-
-  //
-  // Initialize TCG MP data structure 
-  //
-  mBlockCount = PcdGet8(PcdTcgMpBootBlockCount);
-  if (mBlockCount <= 1) {
-    //
-    // If PcdTcgMpBootBlockCount == 0 or 1,  measure entire FV by BSP
-    //
-    mBlockCount = 1;
-  } else {
-    //
-    // Setup task buffer to TCG MP Measure
-    //
-    mTaskBuf = AllocateZeroPool(sizeof(TASK_ENTRY) * mBlockCount);
-    ASSERT (mTaskBuf != NULL);
-  }
-
+  
   if (PcdGet8 (PcdTpm2ScrtmPolicy) == 1) {
     Status = MeasureCRTMVersion ();
   }
