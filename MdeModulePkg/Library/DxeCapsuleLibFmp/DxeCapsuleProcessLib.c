@@ -99,12 +99,12 @@ BOOLEAN                          mNeedReset;
 
 VOID                        **mCapsulePtr;
 EFI_STATUS                  *mCapsuleStatusArray;
-UINT32                      mCapsuleTotalNumber;
+UINTN                       mCapsuleTotalNumber;
 
 /**
   This function initializes the mCapsulePtr, mCapsuleStatusArray and mCapsuleTotalNumber.
 **/
-VOID
+EFI_STATUS
 InitCapsulePtr (
   VOID
   )
@@ -112,53 +112,69 @@ InitCapsulePtr (
   EFI_STATUS                  Status;
   EFI_PEI_HOB_POINTERS        HobPointer;
   UINTN                       Index;
-  UINTN                       CapsuleOnDiskIndex;
-  IMAGE_INFO                  *CapsuleOnDiskBuf;
-  UINTN                       CapsuleOnDiskBufNum;
-
-  CapsuleOnDiskBuf    = NULL;
-  CapsuleOnDiskBufNum = 0;
+  UINT64                      CapsuleTotalSize;
+  EFI_PHYSICAL_ADDRESS        *CapsuleBuf;
 
   //
-  // Find all capsule images from hob
+  // 1. ------------Get Capsule Number ------------
   //
-  HobPointer.Raw = GetHobList ();
-  while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
-    if (!IsValidCapsuleHeader((VOID *)(UINTN)HobPointer.Capsule->BaseAddress, HobPointer.Capsule->Length)) {
-      HobPointer.Header->HobType = EFI_HOB_TYPE_UNUSED; // Mark this hob as invalid
-    } else {
-      mCapsuleTotalNumber++;
+  if (PcdGetBool(PcdCapsuleOnDiskSupport)) {
+    //
+    // 1.1 Capsule On Disk -- All capsule image from relocation dev
+    //
+    Status = CodLibCheckCapsuleRelocationInfo(&CapsuleTotalSize);
+    if (EFI_ERROR(Status)) {
+      //
+      // Force to clear relocation address to avoid deadloop
+      //
+      CoDLibClearCapsuleRelocationInfo();
+      return Status;
     }
-    HobPointer.Raw = GET_NEXT_HOB (HobPointer);
-  }
 
-  DEBUG ((DEBUG_INFO, "mCapsuleTotalNumber after getting Capsule from RAM- 0x%x\n", mCapsuleTotalNumber));
+    //
+    // Find all Capsule on Disk from platform specific relocation device
+    //
+    Status = CodLibRetrieveRelocatedCapsule (
+               20,
+               &CapsuleBuf,
+               &mCapsuleTotalNumber
+               );
+    CoDLibClearCapsuleRelocationInfo();
 
-  //
-  // Find all capsule images from disk
-  //
-  if (PcdGetBool(PcdCapsuleOnDiskSupport) && CodLibCheckCapsuleOnDiskFlag()) {
-    Status = CodLibGetAllCapsuleOnDisk(10, &CapsuleOnDiskBuf, &CapsuleOnDiskBufNum);
+    DEBUG ((DEBUG_INFO, "CodLibRetrieveRelocatedCapsuleOnDisk Status - 0x%x\n", Status));
 
-    DEBUG ((DEBUG_INFO, "CodLibGetAllCapsuleOnDisk Status after getting Caspule from Disk- 0x%x\n", Status));
-    CoDLibClearCapsuleOnDiskFlag();
-    mCapsuleTotalNumber += (UINT32)CapsuleOnDiskBufNum;
+    if (EFI_ERROR(Status)) {
+      return Status;
+    }
+  } else {
+    //
+    // 1.2 Capsule On RAM -- All capsule images from hob
+    //
+    HobPointer.Raw = GetHobList ();
+    while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
+      if (!IsValidCapsuleHeader((VOID *)(UINTN)HobPointer.Capsule->BaseAddress, HobPointer.Capsule->Length)) {
+        HobPointer.Header->HobType = EFI_HOB_TYPE_UNUSED; // Mark this hob as invalid
+      } else {
+        mCapsuleTotalNumber++;
+      }
+      HobPointer.Raw = GET_NEXT_HOB (HobPointer);
+    }
   }
 
   DEBUG ((DEBUG_INFO, "mCapsuleTotalNumber - 0x%x\n", mCapsuleTotalNumber));
 
   if (mCapsuleTotalNumber == 0) {
-    return ;
+    return EFI_NOT_FOUND;
   }
 
   //
-  // Init temp Capsule Data table.
+  // 2. ------------Init temp Capsule Data table ------------
   //
   mCapsulePtr       = (VOID **) AllocateZeroPool (sizeof (VOID *) * mCapsuleTotalNumber);
   if (mCapsulePtr == NULL) {
     DEBUG ((DEBUG_ERROR, "Allocate mCapsulePtr fail!\n"));
     mCapsuleTotalNumber = 0;
-    return ;
+    return EFI_OUT_OF_RESOURCES;
   }
   mCapsuleStatusArray = (EFI_STATUS *) AllocateZeroPool (sizeof (EFI_STATUS) * mCapsuleTotalNumber);
   if (mCapsuleStatusArray == NULL) {
@@ -166,30 +182,35 @@ InitCapsulePtr (
     FreePool (mCapsulePtr);
     mCapsulePtr = NULL;
     mCapsuleTotalNumber = 0;
-    return ;
+    return EFI_OUT_OF_RESOURCES;
   }
   SetMemN (mCapsuleStatusArray, sizeof (EFI_STATUS) * mCapsuleTotalNumber, EFI_NOT_READY);
 
   //
-  // Find all capsule images from hob
+  // 3. ------------Get all the capsules --------------
   //
-  HobPointer.Raw = GetHobList ();
-  Index = 0;
-  while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
-    mCapsulePtr [Index++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
-    HobPointer.Raw = GET_NEXT_HOB (HobPointer);
-  }
-
   if (PcdGetBool(PcdCapsuleOnDiskSupport)) {
-    for (CapsuleOnDiskIndex = 0; CapsuleOnDiskIndex < CapsuleOnDiskBufNum; CapsuleOnDiskIndex++) {
-      mCapsulePtr [Index++] = CapsuleOnDiskBuf[CapsuleOnDiskIndex].ImageAddress;
+    for (Index = 0; Index < mCapsuleTotalNumber; Index++) {
+      mCapsulePtr [Index++] = (VOID *)(CapsuleBuf[Index]);
     }
-    if (CapsuleOnDiskBuf != NULL) {
-      FreePool(CapsuleOnDiskBuf);
+    if (CapsuleBuf != NULL) {
+      FreePool(CapsuleBuf);
+    }
+  } else {
+    //
+    // Find Capsule on RAM images from hob
+    //
+    HobPointer.Raw = GetHobList ();
+    Index = 0;
+    while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
+      mCapsulePtr [Index++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
+      HobPointer.Raw = GET_NEXT_HOB (HobPointer);
     }
   }
 
+  return EFI_SUCCESS;
 }
+
 
 /**
   This function returns if all capsule images are processed.
@@ -356,7 +377,10 @@ ProcessTheseCapsules (
   REPORT_STATUS_CODE(EFI_PROGRESS_CODE, (EFI_SOFTWARE | PcdGet32(PcdStatusCodeSubClassCapsule) | PcdGet32(PcdCapsuleStatusCodeProcessCapsulesBegin)));
 
   if (FirstRound) {
-    InitCapsulePtr ();
+    Status = InitCapsulePtr ();
+    if (EFI_ERROR(Status)) {
+      return Status;
+    }
   }
 
   if (mCapsuleTotalNumber == 0) {
@@ -364,7 +388,7 @@ ProcessTheseCapsules (
     // We didn't find a hob, so had no errors.
     //
     DEBUG ((DEBUG_ERROR, "We can not find capsule data in capsule update boot mode.\n"));
-    return EFI_SUCCESS;
+    return EFI_NOT_FOUND;
   }
 
   if (AreAllImagesProcessed ()) {
@@ -540,7 +564,7 @@ ProcessCapsules (
     // Reboot System if and only if all capsule processed.
     // If not, defer reset to 2nd process.
     //
-    if (mNeedReset && AreAllImagesProcessed()) {
+    if (EFI_ERROR(Status) || (mNeedReset && AreAllImagesProcessed())) {
       DoResetSystem();
     }
   } else {

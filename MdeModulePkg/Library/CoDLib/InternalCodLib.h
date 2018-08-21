@@ -24,8 +24,8 @@ typedef struct {
   UINTN           Signature;
   LIST_ENTRY      Link;                  ///  Linked list members.
   EFI_FILE_INFO   *FileInfo;             ///  Pointer to the FileInfo struct for this file or NULL.
-  CHAR16          *FnFirstPart;          ///  Text to the left of right-most period in the file name. String is capitialized
-  CHAR16          *FnSecondPart;         ///  Text to the right of right-most period in the file name.String is capitialized. Maybe NULL
+  CHAR16          *FileNameFirstPart;    ///  Text to the left of right-most period in the file name. String is capitialized
+  CHAR16          *FileNameSecondPart;   ///  Text to the right of right-most period in the file name.String is capitialized. Maybe NULL
 } FILE_INFO_ENTRY;
 
 //

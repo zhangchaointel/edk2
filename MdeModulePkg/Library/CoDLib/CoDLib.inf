@@ -53,9 +53,15 @@
 
 [Protocols]
   gEfiSimpleFileSystemProtocolGuid ## SOMETIMES_CONSUMES
+  gEfiDiskIoProtocolGuid           ## CONSUMES
+  gEfiBlockIoProtocolGuid          ## CONSUMES
 
 [Guids]
   ## SOMETIMES_CONSUMES ## Variable:L"OsIndications"
   ## SOMETIMES_PRODUCES ## Variable:L"OsIndications"
   gEfiGlobalVariableGuid
   gEfiPartTypeSystemPartGuid
+  gEfiCapsuleVendorGuid
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCodRelocationDevPath

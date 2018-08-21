@@ -1914,6 +1914,8 @@
   # @Prompt If Capsule On RAM feature is supported.
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnRamSupport|TRUE|BOOLEAN|0x0000002e
 
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCodRelocationDevPath|{0x0}|VOID*|0x0000002f
+
 [PcdsPatchableInModule]
   ## Specify memory size with page number for PEI code when
   #  Loading Module at Fixed Address feature is enabled.

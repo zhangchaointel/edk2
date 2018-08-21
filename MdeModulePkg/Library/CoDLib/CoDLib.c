@@ -31,7 +31,8 @@
 #include <Library/UefiBootManagerLib.h>
 
 #include <Protocol/SimpleFileSystem.h>
-#include <Protocol/UsbIo.h>
+#include <Protocol/DiskIo.h>
+#include <Protocol/BlockIo.h>
 #include <Guid/GlobalVariable.h>
 
 #include "InternalCoDLib.h"
@@ -346,7 +347,7 @@ GetEfiSysPartitionFromDevPath(
 **/
 EFI_STATUS 
 GetEfiSysPartitionFromActiveBootOption(
-  IN  UINTN                            MaxTryCount,
+  IN  UINTN                            MaxRetry,
   OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs
   )
 {
@@ -439,8 +440,8 @@ GetEfiSysPartitionFromActiveBootOption(
       //
       // Loop to wait for USB device get enumerated
       //
-      if (EFI_ERROR(Status) && CheckUsbDevicePath(CurFullPath)) {
-        while (MaxTryCount > 0) {
+      if (CheckUsbDevicePath(CurFullPath)) {
+        while (EFI_ERROR(Status) && MaxRetry > 0) {
           EfiBootManagerConnectDevicePath(CurFullPath, NULL);
 
           //
@@ -455,7 +456,7 @@ GetEfiSysPartitionFromActiveBootOption(
           // Stall 100ms if connection failed to ensure USB stack is ready.
           //
           gBS->Stall(100000);
-          MaxTryCount --;
+          MaxRetry --;
         }
       }
 
@@ -618,17 +619,17 @@ GetFileInfoListInAlphabetFromDir(
       goto EXIT;
     }
 
-    NewFileInfoEntry->FnFirstPart  = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
-    if (NewFileInfoEntry->FnFirstPart == NULL) {
+    NewFileInfoEntry->FileNameFirstPart  = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
+    if (NewFileInfoEntry->FileNameFirstPart == NULL) {
       FreePool(NewFileInfoEntry->FileInfo);
       FreePool(NewFileInfoEntry);
       Status = EFI_OUT_OF_RESOURCES;
       goto EXIT;
     }
-    NewFileInfoEntry->FnSecondPart = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
-    if (NewFileInfoEntry->FnSecondPart == NULL) {
+    NewFileInfoEntry->FileNameSecondPart = (CHAR16 *) AllocateZeroPool(MAX_FILE_NAME_SIZE);
+    if (NewFileInfoEntry->FileNameSecondPart == NULL) {
       FreePool(NewFileInfoEntry->FileInfo);
-      FreePool(NewFileInfoEntry->FnFirstPart);
+      FreePool(NewFileInfoEntry->FileNameFirstPart);
       FreePool(NewFileInfoEntry);
       Status = EFI_OUT_OF_RESOURCES;
       goto EXIT;
@@ -638,8 +639,8 @@ GetFileInfoListInAlphabetFromDir(
     // Splitter the whole New file name into 2 parts between the last period L'.' into NewFileName NewFileExtension 
     // If no period in the whole file name. NewFileExtension is set to L'\0' 
     //
-    NewFileName          = NewFileInfoEntry->FnFirstPart;
-    NewFileNameExtension = NewFileInfoEntry->FnSecondPart;
+    NewFileName          = NewFileInfoEntry->FileNameFirstPart;
+    NewFileNameExtension = NewFileInfoEntry->FileNameSecondPart;
     SplitFileNameExtension(FileInfo->FileName, NewFileName, NewFileNameExtension);
     UpperCaseString(NewFileName);
     UpperCaseString(NewFileNameExtension);
@@ -652,8 +653,8 @@ GetFileInfoListInAlphabetFromDir(
       // Get the FileInfo from the link list
       //
       TempFileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
-      ListedFileName          = TempFileInfoEntry->FnFirstPart;
-      ListedFileNameExtension = TempFileInfoEntry->FnSecondPart;
+      ListedFileName          = TempFileInfoEntry->FileNameFirstPart;
+      ListedFileNameExtension = TempFileInfoEntry->FileNameSecondPart;
 
       //
       // Follow rule in UEFI spec 8.5.5 to compare file name 
@@ -758,8 +759,8 @@ EXIT:
       TempFileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
       
       FreePool(TempFileInfoEntry->FileInfo);
-      FreePool(TempFileInfoEntry->FnFirstPart);
-      FreePool(TempFileInfoEntry->FnSecondPart);
+      FreePool(TempFileInfoEntry->FileNameFirstPart);
+      FreePool(TempFileInfoEntry->FileNameSecondPart);
       FreePool(TempFileInfoEntry);
     }
     *FileNum = 0;
@@ -811,7 +812,7 @@ GetFileImageInAlphabetFromDir(
   // Get file list in Dir in alphabetical order
   //
   Status = GetFileInfoListInAlphabetFromDir(
-             Dir, 
+             Dir,
              FileAttr,
              &FileInfoList, 
              &FileCount
@@ -882,8 +883,8 @@ GetFileImageInAlphabetFromDir(
       Link = Link->BackLink;
 
       FreePool(FileInfoEntry->FileInfo);
-      FreePool(FileInfoEntry->FnFirstPart);
-      FreePool(FileInfoEntry->FnSecondPart);
+      FreePool(FileInfoEntry->FileNameFirstPart);
+      FreePool(FileInfoEntry->FileNameSecondPart);
       FreePool(FileInfoEntry);
   
       FreePool(TempFilePtrBuf[FileCount].ImageAddress);
@@ -910,15 +911,17 @@ EXIT:
   *FilePtr = TempFilePtrBuf;
   *FileNum = FileCount;
 
+  //
+  // FileInfo will be freed by Calller
+  //
   while(!IsListEmpty(&FileInfoList)) {
     Link = FileInfoList.ForwardLink; 
     RemoveEntryList(Link);
 
     FileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
 
-    FreePool(FileInfoEntry->FileInfo);
-    FreePool(FileInfoEntry->FnFirstPart);
-    FreePool(FileInfoEntry->FnSecondPart);
+    FreePool(FileInfoEntry->FileNameFirstPart);
+    FreePool(FileInfoEntry->FileNameSecondPart);
     FreePool(FileInfoEntry);
   }
 
@@ -972,7 +975,7 @@ RemoveFileFromDir(
   }
 
   //
-  // Delete all file with given attribute in Dir 
+  // Delete all files with given attribute in Dir 
   //
   for (Link = FileInfoList.ForwardLink; Link != &(FileInfoList); Link = Link->ForwardLink) {
     //
@@ -1010,35 +1013,6 @@ EXIT:
   return Status;
 }
 
-BOOLEAN
-CodLibCheckCapsuleOnDiskFlag(
-  VOID
-  )
-{
-  EFI_STATUS            Status;
-  UINT64                OsIndication;
-  UINTN                 DataSize;
-
-  //
-  // Reset OsIndication File Capsule Delivery Supported Flag
-  //
-  OsIndication = 0;
-  DataSize     = sizeof(UINT64);
-  Status = gRT->GetVariable (
-                  L"OsIndications",
-                  &gEfiGlobalVariableGuid,
-                  NULL,
-                  &DataSize,
-                  &OsIndication
-                  );
-  if (!EFI_ERROR(Status) && 
-      (OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) != 0) {
-    return TRUE;
-  }
-
-  return FALSE;
-}
-
 /**
 
    This routine is called to get all caspules from file. The capsule file image is 
@@ -1050,9 +1024,10 @@ CodLibCheckCapsuleOnDiskFlag(
   @retval EFI_SUCCESS
 
 **/
-EFI_STATUS  
-CodLibGetAllCapsuleOnDisk(
-  IN  UINTN         MaxRetryCount,
+EFI_STATUS
+EFIAPI
+GetAllCapsuleOnDisk(
+  IN  UINTN         MaxRetry,
   OUT IMAGE_INFO    **CapsulePtr,
   OUT UINTN         *CapsuleNum
   )
@@ -1067,7 +1042,7 @@ CodLibGetAllCapsuleOnDisk(
   FileDir     = NULL;
   *CapsuleNum = 0;
 
-  Status = GetEfiSysPartitionFromActiveBootOption(MaxRetryCount, &Fs);
+  Status = GetEfiSysPartitionFromActiveBootOption(MaxRetry, &Fs);
   if (EFI_ERROR(Status)) {
     return Status;
   }
@@ -1118,6 +1093,37 @@ EXIT:
   }
 
   return Status;
+}
+
+
+BOOLEAN
+EFIAPI
+CodLibCheckCapsuleOnDiskFlag(
+  VOID
+  )
+{
+  EFI_STATUS            Status;
+  UINT64                OsIndication;
+  UINTN                 DataSize;
+
+  //
+  // Reset OsIndication File Capsule Delivery Supported Flag
+  //
+  OsIndication = 0;
+  DataSize     = sizeof(UINT64);
+  Status = gRT->GetVariable (
+                  L"OsIndications",
+                  &gEfiGlobalVariableGuid,
+                  NULL,
+                  &DataSize,
+                  &OsIndication
+                  );
+  if (!EFI_ERROR(Status) && 
+      (OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) != 0) {
+    return TRUE;
+  }
+
+  return FALSE;
 }
 
 
@@ -1176,3 +1182,341 @@ CoDLibClearCapsuleOnDiskFlag(
   return EFI_SUCCESS;
 }
 
+EFI_STATUS
+EFIAPI
+CodLibCheckCapsuleRelocationInfo(
+  OUT UINT64 *RelocTotalSize
+  )
+{
+  EFI_STATUS  Status;
+  UINTN       DataSize;
+
+  DataSize        = sizeof(UINT64);
+  *RelocTotalSize = 0;
+
+  Status= gRT->GetVariable (
+                COD_RELOCATION_INFO_VAR_NAME,
+                &gEfiCapsuleVendorGuid,
+                NULL,
+                &DataSize,
+                RelocTotalSize
+                );
+
+  if (DataSize != sizeof(UINT64)) {
+   return EFI_INVALID_PARAMETER;
+  }
+
+  return Status;
+}
+
+/*
+Reset OsIndication File Capsule Delivery Supported Flag
+and clear the boot next variable.
+*/
+EFI_STATUS
+CoDLibClearCapsuleRelocationInfo(
+  VOID
+  )
+{
+  return gRT->SetVariable (
+                COD_RELOCATION_INFO_VAR_NAME,
+                &gEfiCapsuleVendorGuid,
+                0,
+                0,
+                NULL
+                );
+}
+
+/**
+  Relocate CapsuleOnDisk from Efi system partition to an NV storage exposed with bare disk IO
+  It is used to reduce TCB without inputing Partition/File System driver
+  
+  @retval TRUE   All capsule images are processed.
+  @retval FALSE  Not all capsule images are processed.
+**/
+EFI_STATUS
+EFIAPI
+CodLibRelocateCapsule(
+  UINTN     MaxRetry
+  )
+{
+  EFI_STATUS               Status;
+  UINTN                    CapsuleOnDiskNum;
+  UINTN                    Index;
+  UINT64                   CapsuleTotalSize;
+  IMAGE_INFO               *CapsuleOnDiskBuf;
+  EFI_HANDLE               Handle;
+  EFI_DISK_IO_PROTOCOL     *DiskIo;
+  EFI_BLOCK_IO_PROTOCOL    *BlockIo;
+  UINT8                    *CapsuleDataBuf;
+  UINT8                    *CapsulePtr;
+
+  Status = GetAllCapsuleOnDisk(MaxRetry, &CapsuleOnDiskBuf, &CapsuleOnDiskNum);
+  DEBUG ((DEBUG_INFO, "GetAllCapsuleOnDisk Status - 0x%x\n", Status));
+
+  //
+  // Make sure boot option device path connected.
+  // Only handle first device in boot option. Other optional device paths are described as OSV specific
+  // FullDevice could contain extra directory & file info. So don't check connection status here.
+  //
+  EfiBootManagerConnectDevicePath ((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), &Handle);
+
+  Status = gBS->HandleProtocol(Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
+  if (EFI_ERROR(Status) || BlockIo->Media->ReadOnly) {
+    DEBUG((DEBUG_ERROR, "Fail to find BlockIo device or device is ReadOnly!\n"));
+    return Status;
+  }
+
+  Status = gBS->HandleProtocol(Handle, &gEfiDiskIoProtocolGuid, (VOID **)&DiskIo);
+  if (EFI_ERROR(Status)) {
+    return Status;
+  }
+
+  //
+  // Check if device used to relocate Capsule On Disk is big enough
+  //
+  for (Index = 0, CapsuleTotalSize = 0; Index < CapsuleOnDiskNum; Index++) {
+    //
+    // Overflow check
+    //
+    if (MAX_ADDRESS - CapsuleTotalSize <= CapsuleOnDiskBuf[Index].FileInfo->FileSize) {
+      return EFI_INVALID_PARAMETER;
+    }
+    CapsuleTotalSize += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
+  }
+
+  DEBUG((DEBUG_ERROR, "CapsuleTotalSize %x\n", CapsuleTotalSize));
+  //
+  // Check if CapsuleTotalSize. There could be reminder, so use LastBlock number directly
+  //
+  if (DivU64x32(CapsuleTotalSize, BlockIo->Media->BlockSize) >  BlockIo->Media->LastBlock) {
+    DEBUG((DEBUG_ERROR, "Relocation device isn't big enough to hold all Capsule on Disk!\n"));
+    DEBUG((DEBUG_ERROR, "CapsuleTotalSize = %x\n", CapsuleTotalSize));
+    DEBUG((DEBUG_ERROR, "RelocationDev BlockSize = %x LastBlock = %x\n", BlockIo->Media->BlockSize, BlockIo->Media->LastBlock));
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  CapsuleDataBuf = AllocatePool((UINTN)CapsuleTotalSize);
+  if (CapsuleDataBuf == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+  
+  //
+  // Try to line up all the Capsule on Disk and write to relocation disk at one time. It could save some time in disk write
+  //
+  for (Index = 0, CapsulePtr = CapsuleDataBuf; Index < CapsuleOnDiskNum; Index++) {
+    CopyMem(CapsulePtr, CapsuleOnDiskBuf[Index].ImageAddress, CapsuleOnDiskBuf[Index].FileInfo->FileSize);
+    CapsulePtr += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
+  }
+
+  Status = DiskIo->WriteDisk(DiskIo, BlockIo->Media->MediaId, 0, (UINTN)CapsuleTotalSize, CapsuleDataBuf);
+
+  if (!EFI_ERROR(Status)) {
+    //
+    // Save Capsule On Disk Size to NV Storage
+    //
+    Status = gRT->SetVariable(
+                    COD_RELOCATION_INFO_VAR_NAME, 
+                    &gEfiCapsuleVendorGuid, 
+                    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+                    sizeof (UINT64),
+                    &CapsuleTotalSize
+                    );
+  } else {
+    DEBUG((DEBUG_ERROR, "RelocateCapsuleOnDisk WriteDisk error %x\n", Status));
+  }
+
+  FreePool(CapsuleDataBuf);
+
+  //
+  // Free resources allocated by CodLibGetAllCapsuleOnDisk
+  //
+  for (Index = 0; Index < CapsuleOnDiskNum; Index++ ) {
+    FreePool(CapsuleOnDiskBuf[Index].ImageAddress);
+    FreePool(CapsuleOnDiskBuf[Index].FileInfo);
+  }
+  FreePool(CapsuleOnDiskBuf);
+
+  return Status;
+}
+
+EFI_STATUS
+EFIAPI
+CodLibRetrieveRelocatedCapsule (
+  IN  UINTN                MaxRetry,
+  OUT EFI_PHYSICAL_ADDRESS **CapsuleBufPtr,
+  OUT UINTN                *CapsuleNum
+  )
+{
+  EFI_STATUS               Status;
+  UINTN                    Index;
+  UINTN                    VarSize;
+  EFI_HANDLE               Handle;
+  EFI_DISK_IO_PROTOCOL     *DiskIo;
+  EFI_BLOCK_IO_PROTOCOL    *BlockIo;
+  UINT64                   CapsuleTotalSize;
+  UINT8                    *CapsuleDataBuf;
+  UINT8                    *CapsuleDataBufEnd;
+  UINT8                    *CapsulePtr;
+  EFI_PHYSICAL_ADDRESS     *TempCapsuleBufPtr;
+  UINTN                    TempCapsuleNum;
+  EFI_DEVICE_PATH_PROTOCOL *CurFullPath;
+
+  DEBUG ((DEBUG_INFO, "CodLibRetrieveRelocatedCapsuleOnDisk enter\n"));
+
+  TempCapsuleBufPtr = NULL;
+  CapsuleDataBuf    = NULL;
+  *CapsuleBufPtr    = NULL;
+  *CapsuleNum       = 0;
+
+  //
+  // Get Capsule On Disk Size from NV Storage
+  //
+  VarSize = sizeof (UINT64);
+  Status  = gRT->GetVariable(
+                   COD_RELOCATION_INFO_VAR_NAME, 
+                   &gEfiCapsuleVendorGuid,
+                   NULL,
+                   &VarSize,
+                   &CapsuleTotalSize
+                   );
+  if (EFI_ERROR(Status) || VarSize != sizeof (UINT64)) {
+    return EFI_NOT_FOUND;
+  }
+
+  //
+  // Relocation Device should be a low lever block IO device specified by platform.
+  // It is connected within TCB, therefore connection strictly follows full device path
+  // Platform must also ensure no option rom is needed in such device connection
+  //
+  CurFullPath = (EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath);
+  Status = EfiBootManagerConnectDevicePath (CurFullPath, &Handle);
+  //
+  // Loop to wait for USB device get enumerated
+  //
+  if (CheckUsbDevicePath(CurFullPath)) {
+    while (EFI_ERROR(Status) && MaxRetry > 0) {
+      Status = EfiBootManagerConnectDevicePath(CurFullPath, &Handle);
+
+      //
+      // Stall 100ms if connection failed to ensure USB stack is ready.
+      //
+      gBS->Stall(100000);
+      MaxRetry --;
+    }
+  }
+
+  if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR, "CodLibRetrieveRelocatedCapsuleOnDisk fail to find relocation device!\n"));
+    return Status;
+  }
+
+  Status = gBS->HandleProtocol(Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
+  if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR, "CodLibRetrieveRelocatedCapsuleOnDisk fail to locate BlockIo!\n"));
+    return Status;
+  }
+
+  Status = gBS->HandleProtocol(Handle, &gEfiDiskIoProtocolGuid, (VOID **)&DiskIo);
+  if (EFI_ERROR(Status)) {
+    return Status;
+  }
+
+  CapsuleDataBuf = AllocatePool((UINTN)CapsuleTotalSize);
+  if (CapsuleDataBuf == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  //
+  // Overflow check
+  //
+  if (MAX_ADDRESS - (PHYSICAL_ADDRESS)CapsuleDataBuf <= CapsuleTotalSize) {
+    Status = EFI_INVALID_PARAMETER;
+    goto EXIT;
+  }
+  CapsuleDataBufEnd = CapsuleDataBuf + CapsuleTotalSize; 
+
+  //
+  // Read all relocated capsule on disk into memory
+  //
+  Status = DiskIo->ReadDisk(DiskIo, BlockIo->Media->MediaId, 0, (UINTN)CapsuleTotalSize, CapsuleDataBuf);
+  if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR, "DiskRead Error! Status = %x\n", Status));
+    goto EXIT;
+  }
+
+  //
+  // More integrity check against Capsule Header to ensure no data corruption in NV Var & Relocation storage
+  //
+  CapsulePtr = CapsuleDataBuf;
+  Index      = 0;
+  do {
+    //
+    // Overflow check
+    //
+    if ((MAX_ADDRESS - (PHYSICAL_ADDRESS)CapsulePtr) < ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize ||
+        (CapsuleDataBufEnd - CapsulePtr) < sizeof(EFI_CAPSULE_HEADER)) {
+      Status = EFI_INVALID_PARAMETER;
+      goto EXIT;
+    }
+
+    CapsulePtr += ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
+    Index++;
+  } while (CapsulePtr < CapsuleDataBufEnd);
+
+  if (CapsulePtr > CapsuleDataBufEnd) {
+    Status = EFI_INVALID_PARAMETER;
+    goto EXIT;
+  }
+
+  TempCapsuleBufPtr = AllocatePool(sizeof(EFI_PHYSICAL_ADDRESS) * Index);
+  if (TempCapsuleBufPtr == NULL) {
+    Status = EFI_OUT_OF_RESOURCES;
+    goto EXIT;
+  }
+  TempCapsuleNum = Index;
+
+  //
+  // Re-iterate the capsule buffer to get each relocated capsule starting address
+  //
+  for (Index = 0, CapsulePtr = CapsuleDataBuf; CapsulePtr < CapsuleDataBufEnd && Index < TempCapsuleNum; Index++) {
+    TempCapsuleBufPtr[Index] = (EFI_PHYSICAL_ADDRESS)CapsulePtr;
+    CapsulePtr += ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
+  }
+
+  *CapsuleBufPtr = TempCapsuleBufPtr;
+  *CapsuleNum    = Index;
+
+  DEBUG_CODE (
+    CHAR16 *RelocateDevPathStr;
+    UINTN  CapIndex;
+
+    RelocateDevPathStr = ConvertDevicePathToText(CurFullPath, TRUE, TRUE);
+
+    if (RelocateDevPathStr != NULL){
+      DEBUG((DEBUG_INFO, "%d Capsule found in Relocated device\n", *CapsuleNum));
+      DEBUG((DEBUG_INFO, "%s\n", RelocateDevPathStr));
+      FreePool(RelocateDevPathStr);
+    } else {
+      DEBUG((DEBUG_INFO, "%d Capsule found in Relocated device\n", *CapsuleNum));
+    }
+
+    for (CapIndex = 0; CapIndex < *CapsuleNum; CapIndex++) {
+      DEBUG((DEBUG_INFO, "%d Capsule image size 0x%x loaded in 0x%x\n", 
+             CapIndex, ((EFI_CAPSULE_HEADER *)TempCapsuleBufPtr[CapIndex])->CapsuleImageSize, TempCapsuleBufPtr[CapIndex]));
+    }
+  );
+
+EXIT:
+  if (EFI_ERROR(Status)) {
+    if (CapsuleDataBuf != NULL) {
+      FreePool(CapsuleDataBuf);
+    }
+
+    if (TempCapsuleBufPtr != NULL) {
+      FreePool(TempCapsuleBufPtr);
+    }
+  }
+
+  return Status;
+}

@@ -1,6 +1,6 @@
 /** @file
 
-  This library class defines a set of interfaces for processing Capsules from Disk.
+  This library class defines a set of interfaces to process Capsules from Disk.
 
 Copyright (c) 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials are licensed and made available under 
@@ -30,27 +30,11 @@ typedef struct {
   EFI_FILE_INFO    *FileInfo;
 } IMAGE_INFO;
 
+#define COD_RELOCATION_INFO_VAR_NAME   L"CodRelocationInfo"
+
 BOOLEAN
 CodLibCheckCapsuleOnDiskFlag(
   VOID
-  );
-
-/**
-
-   This routine is called to get all caspules from file. The capsule file image is 
-   copied to BS memory. Caller is responsible to free them.
-  
-  @param[out]   CapsulePtr           Copied Capsule file Image Info buffer
-  @param[out]   CapsuleNum           CapsuleNumber
-
-  @retval EFI_SUCCESS
-
-**/
-EFI_STATUS  
-CodLibGetAllCapsuleOnDisk(
-  IN  UINTN         MaxRetryCount,
-  OUT IMAGE_INFO    **CapsulePtr,
-  OUT UINTN         *CapsuleNum
   );
 
 
@@ -62,5 +46,37 @@ EFI_STATUS
 CoDLibClearCapsuleOnDiskFlag(
   VOID
   );
+
+
+EFI_STATUS
+EFIAPI
+CodLibCheckCapsuleRelocationInfo(
+  OUT UINT64 *RelocTotalSize
+  );
+
+
+/*
+Reset OsIndication File Capsule Delivery Supported Flag
+and clear the boot next variable.
+*/
+EFI_STATUS
+CoDLibClearCapsuleRelocationInfo(
+  VOID
+  );
+
+EFI_STATUS
+EFIAPI
+CodLibRelocateCapsule(
+  UINTN     MaxRetry
+  );
+
+EFI_STATUS
+EFIAPI
+CodLibRetrieveRelocatedCapsule (
+  IN  UINTN                MaxRetry,
+  OUT EFI_PHYSICAL_ADDRESS **CapsuleBufPtr,
+  OUT UINTN                *CapsuleNum
+  );
+
 
 #endif
