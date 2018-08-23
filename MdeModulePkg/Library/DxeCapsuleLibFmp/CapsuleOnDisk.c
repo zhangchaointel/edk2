@@ -36,29 +36,6 @@
 
 #include "CapsuleOnDisk.h"
 
-BOOLEAN
-CheckUsbDevicePath(
-  IN  EFI_DEVICE_PATH_PROTOCOL   *DevicePath
-  )
-{
-  EFI_DEVICE_PATH_PROTOCOL  *TempDevicePath;
-
-  TempDevicePath      = DevicePath;
-  while (!IsDevicePathEnd (TempDevicePath)) {
-    if (DevicePathType (TempDevicePath) == MESSAGING_DEVICE_PATH) {
-      if (DevicePathSubType (TempDevicePath) == MSG_USB_CLASS_DP ||
-          DevicePathSubType (TempDevicePath) == MSG_USB_WWID_DP ||
-          DevicePathSubType (TempDevicePath) == MSG_USB_DP) {
-        return TRUE;
-      }
-    }
-
-    TempDevicePath = NextDevicePathNode (TempDevicePath);
-  }
-
-  return FALSE;
-}
-
 /**
 
    This routine is called to set a new capsule status to variable
@@ -437,26 +414,24 @@ GetEfiSysPartitionFromActiveBootOption(
       Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
 
       //
-      // Loop to wait for USB device get enumerated
+      // Some relocation device like USB need more time to get enumerated
       //
-      if (CheckUsbDevicePath(CurFullPath)) {
-        while (EFI_ERROR(Status) && MaxRetry > 0) {
-          EfiBootManagerConnectDevicePath(CurFullPath, NULL);
+      while (EFI_ERROR(Status) && MaxRetry > 0) {
+        EfiBootManagerConnectDevicePath(CurFullPath, NULL);
 
-          //
-          // Search for EFI system partition protocol on full device path in Boot Option 
-          //
-          Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
-          if (!EFI_ERROR(Status)) {
-            break;
-          }
-          DEBUG((DEBUG_ERROR, "GetEfiSysPartitionFromDevPath Loop %x\n", Status));
-          //
-          // Stall 100ms if connection failed to ensure USB stack is ready.
-          //
-          gBS->Stall(100000);
-          MaxRetry --;
+        //
+        // Search for EFI system partition protocol on full device path in Boot Option 
+        //
+        Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
+        if (!EFI_ERROR(Status)) {
+          break;
         }
+        DEBUG((DEBUG_ERROR, "GetEfiSysPartitionFromDevPath Loop %x\n", Status));
+        //
+        // Stall 100ms if connection failed to ensure USB stack is ready.
+        //
+        gBS->Stall(100000);
+        MaxRetry --;
       }
 
 
@@ -1284,7 +1259,7 @@ CoDRelocateCapsule(
     CapsuleTotalSize += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
   }
 
-  DEBUG((DEBUG_ERROR, "CapsuleTotalSize %x\n", CapsuleTotalSize));
+  DEBUG((DEBUG_INFO, "CapsuleTotalSize %x\n", CapsuleTotalSize));
   //
   // Check if CapsuleTotalSize. There could be reminder, so use LastBlock number directly
   //
@@ -1391,19 +1366,18 @@ CoDRetrieveRelocatedCapsule (
   //
   CurFullPath = (EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath);
   Status = EfiBootManagerConnectDevicePath (CurFullPath, &Handle);
-  //
-  // Loop to wait for USB device get enumerated
-  //
-  if (CheckUsbDevicePath(CurFullPath)) {
-    while (EFI_ERROR(Status) && MaxRetry > 0) {
-      Status = EfiBootManagerConnectDevicePath(CurFullPath, &Handle);
 
-      //
-      // Stall 100ms if connection failed to ensure USB stack is ready.
-      //
-      gBS->Stall(100000);
-      MaxRetry --;
-    }
+  //
+  // Loop to wait for relocation device to get enumerated
+  //
+  while (EFI_ERROR(Status) && MaxRetry > 0) {
+    Status = EfiBootManagerConnectDevicePath(CurFullPath, &Handle);
+
+    //
+    // Stall 100ms if connection failed to ensure USB stack is ready.
+    //
+    gBS->Stall(100000);
+    MaxRetry --;
   }
 
   if (EFI_ERROR(Status)) {
