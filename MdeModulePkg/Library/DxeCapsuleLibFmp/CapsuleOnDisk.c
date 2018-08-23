@@ -433,22 +433,6 @@ GetEfiSysPartitionFromActiveBootOption(
         gBS->Stall(100000);
         MaxRetry --;
       }
-
-
-#if 0
-
-    //
-    // Search for EFI system partition protocol on full device path in Boot Option 
-    //
-    Status = gBS->LocateDevicePath (&gEfiSimpleFileSystemProtocolGuid, &DevicePath, &Handle);
-    if (!EFI_ERROR(Status)) {
-      Status = gBS->HandleProtocol(Handle, &gEfiSimpleFileSystemProtocolGuid, Fs);
-      if (!EFI_ERROR(Status)) {
-        break;
-      }
-    }
-
-#endif
     } while(EFI_ERROR(Status));
 
     //
