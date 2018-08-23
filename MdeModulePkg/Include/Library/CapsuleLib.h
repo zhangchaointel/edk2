@@ -1,8 +1,7 @@
 /** @file
+  The definitions needed for Capusle on Disk.
 
-  This library class defines a set of interfaces for how to process capsule image updates.
-
-Copyright (c) 2007 - 2018, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials are licensed and made available under 
 the terms and conditions of the BSD License that accompanies this distribution.  
 The full text of the license may be found at
@@ -32,7 +31,7 @@ typedef struct {
 } IMAGE_INFO;
 
 //
-// Variable to save the total size of all Capsule On Disk during relocation
+// UINT64 Variable to save the total size of all Capsule On Disk during relocation
 //
 #define COD_RELOCATION_INFO_VAR_NAME   L"CodRelocationInfo"
 
@@ -107,45 +106,96 @@ ProcessCapsules (
   VOID
   );
 
+/**
 
+  This routine is called to check if CapsuleOnDisk flag in OsIndications Variable
+  is enabled.
+
+  @retval TRUE     Flag is enabled
+          FALSE    Flag is not enabled
+
+**/
 BOOLEAN
 CoDCheckCapsuleOnDiskFlag(
   VOID
   );
 
 
-/*
-Reset OsIndication File Capsule Delivery Supported Flag
-and clear the boot next variable.
-*/
+/**
+
+  This routine is called to clear CapsuleOnDisk flags including OsIndications and BootNext variable
+
+  @retval EFI_SUCCESS   All Capsule On Disk flags are cleared
+
+**/
 EFI_STATUS
 CoDClearCapsuleOnDiskFlag(
   VOID
   );
 
+/**
 
+  This routine is called to clear CapsuleOnDisk flags including OsIndications and BootNext variable
+
+  @retval EFI_SUCCESS   Capsule On Disk flags are cleared
+
+**/
 EFI_STATUS
 EFIAPI
 CoDCheckCapsuleRelocationInfo(
   OUT UINT64 *RelocTotalSize
   );
 
+/**
 
-/*
-Reset OsIndication File Capsule Delivery Supported Flag
-and clear the boot next variable.
-*/
+  This routine is called to clear CapsuleOnDisk Relocation Info variable.
+  Total Capsule On Disk length is recorded in this variable
+
+  @retval EFI_SUCCESS   Capsule On Disk flags are cleared
+
+**/
 EFI_STATUS
 CoDClearCapsuleRelocationInfo(
   VOID
   );
 
+/**
+
+  Relocate Capsule on Disk from EFI system partition to a platform-specific NV storage device
+  with BlockIo protocol.  Relocation device path, identified by PcdCodRelocationDevPath, must
+  be a full device path.
+  Device enumeration like USB costs time, user can input MaxRetry to tell function to retry.
+  Function will stall 100ms between each retry.
+
+  Side Effects:
+    Content corruption. Block IO write directly touches low level write. Orignal partitions, file systems 
+    of the relocation device will be corrupted.
+
+  @retval TRUE   Capsule on Disk images are sucessfully relocated to the platform-specific device..
+
+**/
 EFI_STATUS
 EFIAPI
 CoDRelocateCapsule(
   UINTN     MaxRetry
   );
 
+/**
+
+  The function is called by Get Relocate Capsule on Disk from EFI system partition to a platform-specific
+  NV storage device producing BlockIo protocol.  Relocation device path is identified by PcdCodRelocationDevPath.
+  The connection logic in this function assumes it is a full device path.
+
+  Caution:
+    Retrieve relocated capsule is done by TCB. Therefore, the relocation device connection happens within TCB.
+    TCB must be immutable and attack surface must be small. Partition and FAT driver are not included in TCB.
+    Platform should configure FULL physical device path without logic Partition device path node.
+    A example is 
+      PciRoot(0x0) \ Pci(0x1D,0x0) \ USB(0x0,0x0) \ USB(0x3, 0x0)
+
+  @retval TRUE   All capsule images are processed.
+
+**/
 EFI_STATUS
 EFIAPI
 CoDRetrieveRelocatedCapsule (

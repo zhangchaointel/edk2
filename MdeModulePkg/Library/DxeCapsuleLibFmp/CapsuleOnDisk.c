@@ -1,5 +1,5 @@
 /** @file
-  The implementation Loading Capusle on Disk into Memory.
+  The implementation supports Capusle on Disk.
 
   Copyright (c) 2018, Intel Corporation. All rights reserved.<BR>
 
@@ -12,27 +12,6 @@
   WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 **/
-#include <Uefi.h>
-#include <Pi/PiMultiPhase.h>
-
-#include <Library/UefiLib.h>
-#include <Library/DebugLib.h>
-#include <Library/BaseLib.h>
-#include <Library/UefiBootServicesTableLib.h>
-#include <Library/UefiRuntimeServicesTableLib.h>
-#include <Library/UefiRuntimeLib.h>
-#include <Library/BaseMemoryLib.h>
-#include <Library/MemoryAllocationLib.h>
-#include <Library/FileHandleLib.h>
-#include <Library/CapsuleLib.h>
-#include <Library/DevicePathLib.h>
-#include <Library/PrintLib.h>
-#include <Library/UefiBootManagerLib.h>
-
-#include <Protocol/SimpleFileSystem.h>
-#include <Protocol/DiskIo.h>
-#include <Protocol/BlockIo.h>
-#include <Guid/GlobalVariable.h>
 
 #include "CapsuleOnDisk.h"
 
@@ -315,7 +294,9 @@ GetEfiSysPartitionFromDevPath(
      1. "BootNext"
      2. "BootOrder"
 
-  @param[out] Fs          Simple File System Protocol found for first active EFI system partition
+  @param[in]  MaxRetry    Max Connection Retry. Stall 100ms between each connection try to ensure
+                          device like USB can get enumerated.
+  @param[out] Fs          Simple File System Protocol found on first active EFI system partition
 
   @retval EFI_SUCCESS     Simple File System protocol found for EFI system partition
   @retval EFI_NOT_FOUND   No Simple File System protocol found for EFI system partition
@@ -973,9 +954,11 @@ EXIT:
 
 /**
 
-   This routine is called to get all caspules from file. The capsule file image is 
-   copied to BS memory. Caller is responsible to free them.
-  
+  This routine is called to get all caspules from file. The capsule file image is
+  copied to BS memory. Caller is responsible to free them.
+
+  @param[in]    MaxRetry             Max Connection Retry. Stall 100ms between each connection try to ensure
+                                     devices like USB can get enumerated.
   @param[out]   CapsulePtr           Copied Capsule file Image Info buffer
   @param[out]   CapsuleNum           CapsuleNumber
 
@@ -1053,7 +1036,15 @@ EXIT:
   return Status;
 }
 
+/**
 
+  This routine is called to check if CapsuleOnDisk flag in OsIndications Variable
+  is enabled.
+
+  @retval TRUE     Flag is enabled
+          FALSE    Flag is not enabled
+
+**/
 BOOLEAN
 EFIAPI
 CoDCheckCapsuleOnDiskFlag(
@@ -1065,7 +1056,7 @@ CoDCheckCapsuleOnDiskFlag(
   UINTN                 DataSize;
 
   //
-  // Reset OsIndication File Capsule Delivery Supported Flag
+  // Check File Capsule Delivery Supported Flag in OsIndication variable
   //
   OsIndication = 0;
   DataSize     = sizeof(UINT64);
@@ -1085,10 +1076,13 @@ CoDCheckCapsuleOnDiskFlag(
 }
 
 
-/*
-Reset OsIndication File Capsule Delivery Supported Flag
-and clear the boot next variable.
-*/
+/**
+
+  This routine is called to clear CapsuleOnDisk flags including OsIndications and BootNext variable
+
+  @retval EFI_SUCCESS   All Capsule On Disk flags are cleared
+
+**/
 EFI_STATUS
 CoDClearCapsuleOnDiskFlag(
   VOID
@@ -1099,7 +1093,7 @@ CoDClearCapsuleOnDiskFlag(
   UINTN                 DataSize;
 
   //
-  // Reset OsIndication File Capsule Delivery Supported Flag
+  // Reset File Capsule Delivery Supported Flag in OsIndication variable
   //
   OsIndication = 0;
   DataSize = sizeof(UINT64);
@@ -1140,6 +1134,15 @@ CoDClearCapsuleOnDiskFlag(
   return EFI_SUCCESS;
 }
 
+/**
+
+  This routine is called to clear Capsule On Disk Relocation flag
+  The flag is the total size of capsules being relocated. It is saved
+  in CapsuleOnDisk Relocation Info varible in form of UINT64
+
+  @retval EFI_SUCCESS   Capsule Relocation flag is cleared
+
+**/
 EFI_STATUS
 EFIAPI
 CoDCheckCapsuleRelocationInfo(
@@ -1167,10 +1170,14 @@ CoDCheckCapsuleRelocationInfo(
   return Status;
 }
 
-/*
-Reset OsIndication File Capsule Delivery Supported Flag
-and clear the boot next variable.
-*/
+/**
+
+  This routine is called to clear CapsuleOnDisk Relocation Info variable.
+  Total Capsule On Disk length is recorded in this variable
+
+  @retval EFI_SUCCESS   Capsule On Disk flags are cleared
+
+**/
 EFI_STATUS
 CoDClearCapsuleRelocationInfo(
   VOID
@@ -1186,118 +1193,21 @@ CoDClearCapsuleRelocationInfo(
 }
 
 /**
-  Relocate CapsuleOnDisk from Efi system partition to an NV storage exposed with bare disk IO
-  It is used to reduce TCB without inputing Partition/File System driver
-  
+
+  The function is called by Get Relocate Capsule on Disk from EFI system partition to a platform-specific
+  NV storage device producing BlockIo protocol.  Relocation device path is identified by PcdCodRelocationDevPath.
+  The connection logic in this function assumes it is a full device path.
+
+  Caution:
+    Retrieve relocated capsule is done by TCB. Therefore, the relocation device connection happens within TCB.
+    TCB must be immutable and attack surface must be small. Partition and FAT driver are not included in TCB.
+    Platform should configure FULL physical device path without logic Partition device path node.
+    A example is 
+      PciRoot(0x0) \ Pci(0x1D,0x0) \ USB(0x0,0x0) \ USB(0x3, 0x0)
+
   @retval TRUE   All capsule images are processed.
-  @retval FALSE  Not all capsule images are processed.
+
 **/
-EFI_STATUS
-EFIAPI
-CoDRelocateCapsule(
-  UINTN     MaxRetry
-  )
-{
-  EFI_STATUS               Status;
-  UINTN                    CapsuleOnDiskNum;
-  UINTN                    Index;
-  UINT64                   CapsuleTotalSize;
-  IMAGE_INFO               *CapsuleOnDiskBuf;
-  EFI_HANDLE               Handle;
-  EFI_DISK_IO_PROTOCOL     *DiskIo;
-  EFI_BLOCK_IO_PROTOCOL    *BlockIo;
-  UINT8                    *CapsuleDataBuf;
-  UINT8                    *CapsulePtr;
-
-  Status = GetAllCapsuleOnDisk(MaxRetry, &CapsuleOnDiskBuf, &CapsuleOnDiskNum);
-  DEBUG ((DEBUG_INFO, "GetAllCapsuleOnDisk Status - 0x%x\n", Status));
-
-  //
-  // Make sure boot option device path connected.
-  // Only handle first device in boot option. Other optional device paths are described as OSV specific
-  // FullDevice could contain extra directory & file info. So don't check connection status here.
-  //
-  EfiBootManagerConnectDevicePath ((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), &Handle);
-
-  Status = gBS->HandleProtocol(Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
-  if (EFI_ERROR(Status) || BlockIo->Media->ReadOnly) {
-    DEBUG((DEBUG_ERROR, "Fail to find Capsule on Disk relocation BlockIo device or device is ReadOnly!\n"));
-    return Status;
-  }
-
-  Status = gBS->HandleProtocol(Handle, &gEfiDiskIoProtocolGuid, (VOID **)&DiskIo);
-  if (EFI_ERROR(Status)) {
-    return Status;
-  }
-
-  //
-  // Check if device used to relocate Capsule On Disk is big enough
-  //
-  for (Index = 0, CapsuleTotalSize = 0; Index < CapsuleOnDiskNum; Index++) {
-    //
-    // Overflow check
-    //
-    if (MAX_ADDRESS - CapsuleTotalSize <= CapsuleOnDiskBuf[Index].FileInfo->FileSize) {
-      return EFI_INVALID_PARAMETER;
-    }
-    CapsuleTotalSize += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
-  }
-
-  DEBUG((DEBUG_INFO, "CapsuleTotalSize %x\n", CapsuleTotalSize));
-  //
-  // Check if CapsuleTotalSize. There could be reminder, so use LastBlock number directly
-  //
-  if (DivU64x32(CapsuleTotalSize, BlockIo->Media->BlockSize) >  BlockIo->Media->LastBlock) {
-    DEBUG((DEBUG_ERROR, "Relocation device isn't big enough to hold all Capsule on Disk!\n"));
-    DEBUG((DEBUG_ERROR, "CapsuleTotalSize = %x\n", CapsuleTotalSize));
-    DEBUG((DEBUG_ERROR, "RelocationDev BlockSize = %x LastBlock = %x\n", BlockIo->Media->BlockSize, BlockIo->Media->LastBlock));
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  CapsuleDataBuf = AllocatePool((UINTN)CapsuleTotalSize);
-  if (CapsuleDataBuf == NULL) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-  
-  //
-  // Try to line up all the Capsule on Disk and write to relocation disk at one time. It could save some time in disk write
-  //
-  for (Index = 0, CapsulePtr = CapsuleDataBuf; Index < CapsuleOnDiskNum; Index++) {
-    CopyMem(CapsulePtr, CapsuleOnDiskBuf[Index].ImageAddress, CapsuleOnDiskBuf[Index].FileInfo->FileSize);
-    CapsulePtr += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
-  }
-
-  Status = DiskIo->WriteDisk(DiskIo, BlockIo->Media->MediaId, 0, (UINTN)CapsuleTotalSize, CapsuleDataBuf);
-
-  if (!EFI_ERROR(Status)) {
-    //
-    // Save Capsule On Disk Size to NV Storage
-    //
-    Status = gRT->SetVariable(
-                    COD_RELOCATION_INFO_VAR_NAME, 
-                    &gEfiCapsuleVendorGuid, 
-                    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
-                    sizeof (UINT64),
-                    &CapsuleTotalSize
-                    );
-  } else {
-    DEBUG((DEBUG_ERROR, "RelocateCapsuleOnDisk WriteDisk error %x\n", Status));
-  }
-
-  FreePool(CapsuleDataBuf);
-
-  //
-  // Free resources allocated by CodLibGetAllCapsuleOnDisk
-  //
-  for (Index = 0; Index < CapsuleOnDiskNum; Index++ ) {
-    FreePool(CapsuleOnDiskBuf[Index].ImageAddress);
-    FreePool(CapsuleOnDiskBuf[Index].FileInfo);
-  }
-  FreePool(CapsuleOnDiskBuf);
-
-  return Status;
-}
-
 EFI_STATUS
 EFIAPI
 CoDRetrieveRelocatedCapsule (
@@ -1493,3 +1403,126 @@ EXIT:
 
   return Status;
 }
+
+/**
+
+  Relocate Capsule on Disk from EFI system partition to a platform-specific NV storage device
+  with BlockIo protocol.  Relocation device path, identified by PcdCodRelocationDevPath, must
+  be a full device path.
+  Device enumeration like USB costs time, user can input MaxRetry to tell function to retry.
+  Function will stall 100ms between each retry.
+
+  Side Effects:
+    Content corruption. Block IO write directly touches low level write. Orignal partitions, file systems 
+    of the relocation device will be corrupted.
+
+  @retval TRUE   Capsule on Disk images are sucessfully relocated to the platform-specific device..
+
+**/
+EFI_STATUS
+EFIAPI
+CoDRelocateCapsule(
+  UINTN     MaxRetry
+  )
+{
+  EFI_STATUS               Status;
+  UINTN                    CapsuleOnDiskNum;
+  UINTN                    Index;
+  UINT64                   CapsuleTotalSize;
+  IMAGE_INFO               *CapsuleOnDiskBuf;
+  EFI_HANDLE               Handle;
+  EFI_DISK_IO_PROTOCOL     *DiskIo;
+  EFI_BLOCK_IO_PROTOCOL    *BlockIo;
+  UINT8                    *CapsuleDataBuf;
+  UINT8                    *CapsulePtr;
+
+  Status = GetAllCapsuleOnDisk(MaxRetry, &CapsuleOnDiskBuf, &CapsuleOnDiskNum);
+  DEBUG ((DEBUG_INFO, "GetAllCapsuleOnDisk Status - 0x%x\n", Status));
+
+  //
+  // Make sure boot option device path connected.
+  // Only handle first device in boot option. Other optional device paths are described as OSV specific
+  // FullDevice could contain extra directory & file info. So don't check connection status here.
+  //
+  EfiBootManagerConnectDevicePath ((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), &Handle);
+
+  Status = gBS->HandleProtocol(Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
+  if (EFI_ERROR(Status) || BlockIo->Media->ReadOnly) {
+    DEBUG((DEBUG_ERROR, "Fail to find Capsule on Disk relocation BlockIo device or device is ReadOnly!\n"));
+    return Status;
+  }
+
+  Status = gBS->HandleProtocol(Handle, &gEfiDiskIoProtocolGuid, (VOID **)&DiskIo);
+  if (EFI_ERROR(Status)) {
+    return Status;
+  }
+
+  //
+  // Check if device used to relocate Capsule On Disk is big enough
+  //
+  for (Index = 0, CapsuleTotalSize = 0; Index < CapsuleOnDiskNum; Index++) {
+    //
+    // Overflow check
+    //
+    if (MAX_ADDRESS - CapsuleTotalSize <= CapsuleOnDiskBuf[Index].FileInfo->FileSize) {
+      return EFI_INVALID_PARAMETER;
+    }
+    CapsuleTotalSize += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
+  }
+
+  DEBUG((DEBUG_INFO, "CapsuleTotalSize %x\n", CapsuleTotalSize));
+  //
+  // Check if CapsuleTotalSize. There could be reminder, so use LastBlock number directly
+  //
+  if (DivU64x32(CapsuleTotalSize, BlockIo->Media->BlockSize) >  BlockIo->Media->LastBlock) {
+    DEBUG((DEBUG_ERROR, "Relocation device isn't big enough to hold all Capsule on Disk!\n"));
+    DEBUG((DEBUG_ERROR, "CapsuleTotalSize = %x\n", CapsuleTotalSize));
+    DEBUG((DEBUG_ERROR, "RelocationDev BlockSize = %x LastBlock = %x\n", BlockIo->Media->BlockSize, BlockIo->Media->LastBlock));
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  CapsuleDataBuf = AllocatePool((UINTN)CapsuleTotalSize);
+  if (CapsuleDataBuf == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+  
+  //
+  // Try to line up all the Capsule on Disk and write to relocation disk at one time. It could save some time in disk write
+  //
+  for (Index = 0, CapsulePtr = CapsuleDataBuf; Index < CapsuleOnDiskNum; Index++) {
+    CopyMem(CapsulePtr, CapsuleOnDiskBuf[Index].ImageAddress, CapsuleOnDiskBuf[Index].FileInfo->FileSize);
+    CapsulePtr += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
+  }
+
+  Status = DiskIo->WriteDisk(DiskIo, BlockIo->Media->MediaId, 0, (UINTN)CapsuleTotalSize, CapsuleDataBuf);
+
+  if (!EFI_ERROR(Status)) {
+    //
+    // Save Capsule On Disk Size to NV Storage
+    //
+    Status = gRT->SetVariable(
+                    COD_RELOCATION_INFO_VAR_NAME, 
+                    &gEfiCapsuleVendorGuid, 
+                    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+                    sizeof (UINT64),
+                    &CapsuleTotalSize
+                    );
+  } else {
+    DEBUG((DEBUG_ERROR, "RelocateCapsuleOnDisk WriteDisk error %x\n", Status));
+  }
+
+  FreePool(CapsuleDataBuf);
+
+  //
+  // Free resources allocated by CodLibGetAllCapsuleOnDisk
+  //
+  for (Index = 0; Index < CapsuleOnDiskNum; Index++ ) {
+    FreePool(CapsuleOnDiskBuf[Index].ImageAddress);
+    FreePool(CapsuleOnDiskBuf[Index].FileInfo);
+  }
+  FreePool(CapsuleOnDiskBuf);
+
+  return Status;
+}
+
+

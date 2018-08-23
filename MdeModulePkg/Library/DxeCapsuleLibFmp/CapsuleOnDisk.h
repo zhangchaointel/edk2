@@ -16,6 +16,28 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #ifndef _CAPSULES_ON_DISK_H_
 #define _CAPSULES_ON_DISK_H_
 
+#include <Uefi.h>
+#include <Pi/PiMultiPhase.h>
+
+#include <Library/UefiLib.h>
+#include <Library/DebugLib.h>
+#include <Library/BaseLib.h>
+#include <Library/UefiBootServicesTableLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
+#include <Library/UefiRuntimeLib.h>
+#include <Library/BaseMemoryLib.h>
+#include <Library/MemoryAllocationLib.h>
+#include <Library/FileHandleLib.h>
+#include <Library/CapsuleLib.h>
+#include <Library/DevicePathLib.h>
+#include <Library/PrintLib.h>
+#include <Library/UefiBootManagerLib.h>
+
+#include <Protocol/SimpleFileSystem.h>
+#include <Protocol/DiskIo.h>
+#include <Protocol/BlockIo.h>
+#include <Guid/GlobalVariable.h>
+
 //
 // This data structure is the part of FILE_INFO_ENTRY
 //
