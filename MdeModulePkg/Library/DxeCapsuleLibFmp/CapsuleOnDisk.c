@@ -1262,7 +1262,7 @@ CoDRelocateCapsule(
 
   Status = gBS->HandleProtocol(Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
   if (EFI_ERROR(Status) || BlockIo->Media->ReadOnly) {
-    DEBUG((DEBUG_ERROR, "Fail to find BlockIo device or device is ReadOnly!\n"));
+    DEBUG((DEBUG_ERROR, "Fail to find Capsule on Disk relocation BlockIo device or device is ReadOnly!\n"));
     return Status;
   }
 

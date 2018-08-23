@@ -497,15 +497,20 @@ ProcessTheseCapsules (
 **/
 VOID
 DoResetSystem (
-  VOID
+  EFI_STATUS CapsuleStatus
   )
 {
   UINTN                         Index;
 
   REPORT_STATUS_CODE(EFI_PROGRESS_CODE, (EFI_SOFTWARE | PcdGet32(PcdStatusCodeSubClassCapsule) | PcdGet32(PcdCapsuleStatusCodeResettingSystem)));
 
-  Print(L"Capsule Request Cold Reboot.\n");
-  DEBUG((DEBUG_INFO, "Capsule Request Cold Reboot."));
+  if (!EFI_ERROR(CapsuleStatus)) {
+    Print(L"Capsule Request Cold Reboot.\n");
+    DEBUG((DEBUG_INFO, "Capsule Request Cold Reboot."));
+  } else {
+    Print(L"Capsule process error. Cold Reboot to recover.\n");
+    DEBUG((DEBUG_INFO, "Capsule process error. Cold Reboot to recover."));
+  }
 
   for (Index = 5; Index > 0; Index--) {
     Print(L"\rResetting system in %d seconds ...", Index);
@@ -564,7 +569,7 @@ ProcessCapsules (
     // If not, defer reset to 2nd process.
     //
     if (EFI_ERROR(Status) || (mNeedReset && AreAllImagesProcessed())) {
-      DoResetSystem();
+      DoResetSystem(Status);
     }
   } else {
     Status = ProcessTheseCapsules(FALSE);
@@ -572,7 +577,7 @@ ProcessCapsules (
     // Reboot System if required after all capsule processed
     //
     if (mNeedReset) {
-      DoResetSystem();
+      DoResetSystem(Status);
     }
   }
   return Status;
