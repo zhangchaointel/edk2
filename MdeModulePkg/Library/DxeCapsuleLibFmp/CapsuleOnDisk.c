@@ -27,7 +27,6 @@
 #include <Library/CapsuleLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/PrintLib.h>
-#include <Library/CodLib.h>
 #include <Library/UefiBootManagerLib.h>
 
 #include <Protocol/SimpleFileSystem.h>
@@ -35,7 +34,7 @@
 #include <Protocol/BlockIo.h>
 #include <Guid/GlobalVariable.h>
 
-#include "InternalCoDLib.h"
+#include "CapsuleOnDisk.h"
 
 BOOLEAN
 CheckUsbDevicePath(
@@ -1098,7 +1097,7 @@ EXIT:
 
 BOOLEAN
 EFIAPI
-CodLibCheckCapsuleOnDiskFlag(
+CoDCheckCapsuleOnDiskFlag(
   VOID
   )
 {
@@ -1132,7 +1131,7 @@ Reset OsIndication File Capsule Delivery Supported Flag
 and clear the boot next variable.
 */
 EFI_STATUS
-CoDLibClearCapsuleOnDiskFlag(
+CoDClearCapsuleOnDiskFlag(
   VOID
   )
 {
@@ -1184,7 +1183,7 @@ CoDLibClearCapsuleOnDiskFlag(
 
 EFI_STATUS
 EFIAPI
-CodLibCheckCapsuleRelocationInfo(
+CoDCheckCapsuleRelocationInfo(
   OUT UINT64 *RelocTotalSize
   )
 {
@@ -1214,7 +1213,7 @@ Reset OsIndication File Capsule Delivery Supported Flag
 and clear the boot next variable.
 */
 EFI_STATUS
-CoDLibClearCapsuleRelocationInfo(
+CoDClearCapsuleRelocationInfo(
   VOID
   )
 {
@@ -1236,7 +1235,7 @@ CoDLibClearCapsuleRelocationInfo(
 **/
 EFI_STATUS
 EFIAPI
-CodLibRelocateCapsule(
+CoDRelocateCapsule(
   UINTN     MaxRetry
   )
 {
@@ -1342,7 +1341,7 @@ CodLibRelocateCapsule(
 
 EFI_STATUS
 EFIAPI
-CodLibRetrieveRelocatedCapsule (
+CoDRetrieveRelocatedCapsule (
   IN  UINTN                MaxRetry,
   OUT EFI_PHYSICAL_ADDRESS **CapsuleBufPtr,
   OUT UINTN                *CapsuleNum
@@ -1360,6 +1359,7 @@ CodLibRetrieveRelocatedCapsule (
   UINT8                    *CapsulePtr;
   EFI_PHYSICAL_ADDRESS     *TempCapsuleBufPtr;
   UINTN                    TempCapsuleNum;
+  UINTN                    TempCapsuleSize;
   EFI_DEVICE_PATH_PROTOCOL *CurFullPath;
 
   DEBUG ((DEBUG_INFO, "CodLibRetrieveRelocatedCapsuleOnDisk enter\n"));
@@ -1469,7 +1469,7 @@ CodLibRetrieveRelocatedCapsule (
     goto EXIT;
   }
 
-  TempCapsuleBufPtr = AllocatePool(sizeof(EFI_PHYSICAL_ADDRESS) * Index);
+  TempCapsuleBufPtr = AllocateZeroPool(sizeof(EFI_PHYSICAL_ADDRESS) * Index);
   if (TempCapsuleBufPtr == NULL) {
     Status = EFI_OUT_OF_RESOURCES;
     goto EXIT;
@@ -1480,8 +1480,17 @@ CodLibRetrieveRelocatedCapsule (
   // Re-iterate the capsule buffer to get each relocated capsule starting address
   //
   for (Index = 0, CapsulePtr = CapsuleDataBuf; CapsulePtr < CapsuleDataBufEnd && Index < TempCapsuleNum; Index++) {
-    TempCapsuleBufPtr[Index] = (EFI_PHYSICAL_ADDRESS)CapsulePtr;
-    CapsulePtr += ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
+    //
+    // Make sure relocated capsules are aligned
+    //
+    TempCapsuleSize          = ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
+    TempCapsuleBufPtr[Index] = (EFI_PHYSICAL_ADDRESS)AllocatePages(EFI_SIZE_TO_PAGES(TempCapsuleSize));
+    if (TempCapsuleBufPtr[Index] == (EFI_PHYSICAL_ADDRESS)NULL) {
+      Status = EFI_OUT_OF_RESOURCES;
+      goto EXIT;
+    }
+    CopyMem((VOID *)TempCapsuleBufPtr[Index], CapsulePtr, TempCapsuleSize);
+    CapsulePtr += TempCapsuleSize;
   }
 
   *CapsuleBufPtr = TempCapsuleBufPtr;
@@ -1509,13 +1518,19 @@ CodLibRetrieveRelocatedCapsule (
 
 EXIT:
   if (EFI_ERROR(Status)) {
-    if (CapsuleDataBuf != NULL) {
-      FreePool(CapsuleDataBuf);
-    }
-
     if (TempCapsuleBufPtr != NULL) {
+      for (Index = 0; Index < TempCapsuleNum; Index++) {
+        if (TempCapsuleBufPtr[Index] != (EFI_PHYSICAL_ADDRESS)NULL) {
+          FreePool((VOID *)TempCapsuleBufPtr[Index]);
+        }
+      }
+
       FreePool(TempCapsuleBufPtr);
     }
+  }
+
+  if (CapsuleDataBuf != NULL) {
+    FreePool(CapsuleDataBuf);
   }
 
   return Status;

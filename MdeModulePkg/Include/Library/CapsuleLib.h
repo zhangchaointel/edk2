@@ -2,7 +2,7 @@
 
   This library class defines a set of interfaces for how to process capsule image updates.
 
-Copyright (c) 2007 - 2016, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2007 - 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials are licensed and made available under 
 the terms and conditions of the BSD License that accompanies this distribution.  
 The full text of the license may be found at
@@ -15,6 +15,26 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 #ifndef __CAPSULE_LIB_H__
 #define __CAPSULE_LIB_H__
+
+#include <Guid/FileInfo.h>
+
+
+typedef struct {
+  //
+  // image address.
+  //
+  VOID             *ImageAddress;
+  //
+  // The file info of the image comes from.
+  //  if FileInfo == NULL. means image does not come from file
+  //
+  EFI_FILE_INFO    *FileInfo;
+} IMAGE_INFO;
+
+//
+// Variable to save the total size of all Capsule On Disk during relocation
+//
+#define COD_RELOCATION_INFO_VAR_NAME   L"CodRelocationInfo"
 
 /**
   The firmware checks whether the capsule image is supported 
@@ -86,5 +106,53 @@ EFIAPI
 ProcessCapsules (
   VOID
   );
+
+
+BOOLEAN
+CoDCheckCapsuleOnDiskFlag(
+  VOID
+  );
+
+
+/*
+Reset OsIndication File Capsule Delivery Supported Flag
+and clear the boot next variable.
+*/
+EFI_STATUS
+CoDClearCapsuleOnDiskFlag(
+  VOID
+  );
+
+
+EFI_STATUS
+EFIAPI
+CoDCheckCapsuleRelocationInfo(
+  OUT UINT64 *RelocTotalSize
+  );
+
+
+/*
+Reset OsIndication File Capsule Delivery Supported Flag
+and clear the boot next variable.
+*/
+EFI_STATUS
+CoDClearCapsuleRelocationInfo(
+  VOID
+  );
+
+EFI_STATUS
+EFIAPI
+CoDRelocateCapsule(
+  UINTN     MaxRetry
+  );
+
+EFI_STATUS
+EFIAPI
+CoDRetrieveRelocatedCapsule (
+  IN  UINTN                MaxRetry,
+  OUT EFI_PHYSICAL_ADDRESS **CapsuleBufPtr,
+  OUT UINTN                *CapsuleNum
+  );
+
 
 #endif

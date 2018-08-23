@@ -35,6 +35,7 @@
   DxeCapsuleLib.c
   DxeCapsuleProcessLib.c
   DxeCapsuleReportLib.c
+  CapsuleOnDisk.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -52,7 +53,8 @@
   PrintLib
   HobLib
   BmpSupportLib
-  CodLib
+  FileHandleLib
+  UefiBootManagerLib
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleMax                               ## CONSUMES
@@ -66,11 +68,15 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleStatusCodeUpdateFirmwareFailed    ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleStatusCodeResettingSystem         ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskSupport                     ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCodRelocationDevPath                     ## SOMETIMES_CONSUMES
 
 [Protocols]
   gEsrtManagementProtocolGuid             ## CONSUMES
   gEfiFirmwareManagementProtocolGuid      ## CONSUMES
   gEdkiiVariableLockProtocolGuid          ## SOMETIMES_CONSUMES
+  gEfiSimpleFileSystemProtocolGuid ## SOMETIMES_CONSUMES
+  gEfiDiskIoProtocolGuid			 ## CONSUMES
+  gEfiBlockIoProtocolGuid 		 ## CONSUMES
 
 [Guids]
   gEfiFmpCapsuleGuid                      ## SOMETIMES_CONSUMES ## GUID
@@ -80,6 +86,9 @@
   gEfiCapsuleReportGuid
   gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable:L"CapsuleUpdateData"
   gEfiEndOfDxeEventGroupGuid              ## CONSUMES ## Event
+  gEfiPartTypeSystemPartGuid              ## SOMETIMES_CONSUMES
+  gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable:L"CodRelocationInfo"
+  gEfiGlobalVariableGuid
 
 [Depex]
   gEfiVariableWriteArchProtocolGuid

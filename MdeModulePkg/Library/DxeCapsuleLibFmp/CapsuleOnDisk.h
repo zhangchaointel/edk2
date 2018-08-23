@@ -1,5 +1,6 @@
 /** @file
-  Defines several datastructures used by Capsule On Disk feature
+  Defines several datastructures used by Capsule On Disk feature. 
+  They are mainly used for FAT files.
 
 Copyright (c) 2018, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
@@ -12,8 +13,8 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 **/
 
-#ifndef _CAPSULES_H_
-#define _CAPSULES_H_
+#ifndef _CAPSULES_ON_DISK_H_
+#define _CAPSULES_ON_DISK_H_
 
 //
 // This data structure is the part of FILE_INFO_ENTRY
@@ -36,4 +37,4 @@ typedef struct {
 
 #define MAX_FILE_INFO_LEN    (OFFSET_OF(EFI_FILE_INFO, FileName) + MAX_FILE_NAME_LEN)
 
-#endif // _CAPSULES_H_
+#endif // _CAPSULES_ON_DISK_H_

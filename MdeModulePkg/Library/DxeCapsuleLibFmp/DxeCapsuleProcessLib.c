@@ -34,7 +34,6 @@
 #include <Library/HobLib.h>
 #include <Library/ReportStatusCodeLib.h>
 #include <Library/CapsuleLib.h>
-#include <Library/CodLib.h>
 #include <IndustryStandard/WindowsUxCapsule.h>
 
 /**
@@ -120,28 +119,28 @@ InitCapsulePtr (
   //
   if (PcdGetBool(PcdCapsuleOnDiskSupport)) {
     //
-    // 1.1 Capsule On Disk -- All capsule image from relocation dev
+    // 1.1 Capsule On Disk -- All capsule image from relocation storage
     //
-    Status = CodLibCheckCapsuleRelocationInfo(&CapsuleTotalSize);
+    Status = CoDCheckCapsuleRelocationInfo(&CapsuleTotalSize);
     if (EFI_ERROR(Status)) {
       //
       // Force to clear relocation address to avoid deadloop
       //
-      CoDLibClearCapsuleRelocationInfo();
+      CoDClearCapsuleRelocationInfo();
       return Status;
     }
 
     //
     // Find all Capsule on Disk from platform specific relocation device
     //
-    Status = CodLibRetrieveRelocatedCapsule (
+    Status = CoDRetrieveRelocatedCapsule (
                20,
                &CapsuleBuf,
                &mCapsuleTotalNumber
                );
-    CoDLibClearCapsuleRelocationInfo();
+    CoDClearCapsuleRelocationInfo();
 
-    DEBUG ((DEBUG_INFO, "CodLibRetrieveRelocatedCapsuleOnDisk Status - 0x%x\n", Status));
+    DEBUG ((DEBUG_INFO, "CoDRetrieveRelocatedCapsule Status - 0x%x\n", Status));
 
     if (EFI_ERROR(Status)) {
       return Status;
@@ -191,7 +190,7 @@ InitCapsulePtr (
   //
   if (PcdGetBool(PcdCapsuleOnDiskSupport)) {
     for (Index = 0; Index < mCapsuleTotalNumber; Index++) {
-      mCapsulePtr [Index++] = (VOID *)(CapsuleBuf[Index]);
+      mCapsulePtr [Index] = (VOID *)(CapsuleBuf[Index]);
     }
     if (CapsuleBuf != NULL) {
       FreePool(CapsuleBuf);
