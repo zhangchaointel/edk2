@@ -46,6 +46,7 @@ typedef struct {
   
   @retval EFI_SUCESS       Input capsule is supported by firmware.
   @retval EFI_UNSUPPORTED  Input capsule is not supported by the firmware.
+
 **/
 EFI_STATUS
 EFIAPI
@@ -63,6 +64,7 @@ SupportCapsuleImage (
    
   @retval EFI_SUCESS       Capsule Image processed successfully. 
   @retval EFI_UNSUPPORTED  Capsule image is not supported by the firmware.
+
 **/
 EFI_STATUS
 EFIAPI
@@ -71,7 +73,6 @@ ProcessCapsuleImage (
   );
 
 /**
-
   This routine is called to process capsules.
 
   Caution: This function may receive untrusted input.
@@ -107,7 +108,6 @@ ProcessCapsules (
   );
 
 /**
-
   This routine is called to check if CapsuleOnDisk flag in OsIndications Variable
   is enabled.
 
@@ -122,7 +122,6 @@ CoDCheckCapsuleOnDiskFlag(
 
 
 /**
-
   This routine is called to clear CapsuleOnDisk flags including OsIndications and BootNext variable
 
   @retval EFI_SUCCESS   All Capsule On Disk flags are cleared
@@ -147,7 +146,6 @@ CoDCheckCapsuleRelocationInfo(
   );
 
 /**
-
   This routine is called to clear CapsuleOnDisk Relocation Info variable.
   Total Capsule On Disk length is recorded in this variable
 
@@ -160,7 +158,6 @@ CoDClearCapsuleRelocationInfo(
   );
 
 /**
-
   Relocate Capsule on Disk from EFI system partition to a platform-specific NV storage device
   with BlockIo protocol.  Relocation device path, identified by PcdCodRelocationDevPath, must
   be a full device path.
@@ -181,7 +178,6 @@ CoDRelocateCapsule(
   );
 
 /**
-
   The function is called by Get Relocate Capsule on Disk from EFI system partition to a platform-specific
   NV storage device producing BlockIo protocol.  Relocation device path is identified by PcdCodRelocationDevPath.
   The connection logic in this function assumes it is a full device path.

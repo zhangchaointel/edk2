@@ -16,11 +16,9 @@
 #include "CapsuleOnDisk.h"
 
 /**
-
-   This routine is called to set a new capsule status to variable
-  The variable name is L"CapsuleXXXX"
+   This routine is called to upper case given unicode string
   
-  @param[in]   CapsuleStatus              capsule process status
+  @param[in]   Str              String to upper case
 
   @retval upper cased string after process
 
@@ -43,13 +41,14 @@ UpperCaseString (
 }
 
 /**
-
    This routine is used to return substring before period '.' or '\0'
-   Caller owns substr space allocation & free
+   Caller should respsonsible of substr space allocation & free
   
-  @param[in]   CapsuleStatus              capsule process status
-
-  @retval upper cased string after process
+  @param[in]   Str              String to check
+  @param[out]  SubStr              First part of string before period or '\0'
+  @param[out]  SubStrLen              Length of first part of string 
+  
+  @retval NONE
 
 **/
 STATIC
@@ -71,12 +70,13 @@ GetSubStringBeforePeriod (
 }
 
 /**
-
    This routine pad the string in tail with input character.
   
   @param[in]   StrBuf              Str buffer to be padded, should be enough room for 
   @param[in]   PadLen             Expected padding length
   @param[in]   Character         Character used to pad
+
+  @retval NONE
 
 **/
 STATIC
@@ -101,7 +101,6 @@ PadStrInTail (
  }
 
 /**
-
    This routine find the offset of the last period '.' of string. if No period exists
    function FileNameExtension is set to L'\0'
   
@@ -143,12 +142,12 @@ SplitFileNameExtension (
 }
 
 /**
-
-  This routine is called to get all boot options determnined by  
-     1. "BootNext"
+  This routine is called to get all boot options in the order determnined by  
+     1. "OptionBuf"
      2. "BootOrder"
 
-  @param[out] BootLists           BootList points to all boot options returned
+  @param[out] OptionBuf           BootList buffer to all boot options returned
+  @param[out] OptionBuf           BootList count of all boot options returned
 
   @retval EFI_SUCCESS             There is no error when processing capsule
 
@@ -237,8 +236,14 @@ GetBootOptionInOrder(
   return Status;
 }
 
-/*
-  Check if Active Efi System Partition within GPT is in the device path
+/**
+  Get Active EFI System Partition within GPT based on device path
+
+  @param[in] DevicePath      Device path to find a active EFI System Partition
+  @param[out] DevicePath    BootList points to all boot options returned
+
+  @retval EFI_SUCCESS         Active EFI System Partition is succesfully found
+              EFI_NOT_FOUND     No Active EFI System Partition is found
 
 */
 EFI_STATUS
@@ -287,10 +292,10 @@ GetEfiSysPartitionFromDevPath(
 
    return EFI_NOT_FOUND;
 }
-/**
 
-  This routine is called to get Simple File System protocol on the first EFI system partition found in  
-  active boot option. The boot option list is detemined in order by 
+/**
+  This routine is called to get Simple File System protocol on the first EFI system partition found in
+  active boot option. The boot option list is detemined in order by
      1. "BootNext"
      2. "BootOrder"
 
@@ -358,7 +363,7 @@ GetEfiSysPartitionFromActiveBootOption(
 
     CurFullPath = NULL;
     //
-    // Try every full device Path generated from bootoption 
+    // Try every full device Path generated from bootoption
     //
     do {
       PreFullPath = CurFullPath;
@@ -401,7 +406,7 @@ GetEfiSysPartitionFromActiveBootOption(
         EfiBootManagerConnectDevicePath(CurFullPath, NULL);
 
         //
-        // Search for EFI system partition protocol on full device path in Boot Option 
+        // Search for EFI system partition protocol on full device path in Boot Option
         //
         Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
         if (!EFI_ERROR(Status)) {
@@ -409,7 +414,7 @@ GetEfiSysPartitionFromActiveBootOption(
         }
         DEBUG((DEBUG_ERROR, "GetEfiSysPartitionFromDevPath Loop %x\n", Status));
         //
-        // Stall 100ms if connection failed to ensure USB stack is ready.
+        // Stall 100ms if connection failed to ensure USB stack is ready
         //
         gBS->Stall(100000);
         MaxRetry --;
@@ -473,16 +478,15 @@ GetEfiSysPartitionFromActiveBootOption(
 
 
 /**
-
   This routine is called to get all file infos with in a given dir & with given file attribute, the file info is listed in
-  alphabetical order described in UEFI spec. 
+  alphabetical order described in UEFI spec.
 
   @param[in]  Dir                 Directory file handler
   @param[in]  FileAttr            Attribute of file to be red from directory
   @param[out] FileInfoList        File images info list red from directory
   @param[out] FileNum             File images number red from directory
 
-  @retval EFI_SUCCESS             file FileInfo list in the given  
+  @retval EFI_SUCCESS             file FileInfo list in the given
 
 **/
 EFI_STATUS
@@ -575,8 +579,8 @@ GetFileInfoListInAlphabetFromDir(
     }
 
     //
-    // Splitter the whole New file name into 2 parts between the last period L'.' into NewFileName NewFileExtension 
-    // If no period in the whole file name. NewFileExtension is set to L'\0' 
+    // Splitter the whole New file name into 2 parts between the last period L'.' into NewFileName NewFileExtension
+    // If no period in the whole file name. NewFileExtension is set to L'\0'
     //
     NewFileName          = NewFileInfoEntry->FileNameFirstPart;
     NewFileNameExtension = NewFileInfoEntry->FileNameSecondPart;
@@ -596,7 +600,7 @@ GetFileInfoListInAlphabetFromDir(
       ListedFileNameExtension = TempFileInfoEntry->FileNameSecondPart;
 
       //
-      // Follow rule in UEFI spec 8.5.5 to compare file name 
+      // Follow rule in UEFI spec 8.5.5 to compare file name
       //
       IndexListed = 0;
       IndexNew    = 0;
@@ -646,7 +650,7 @@ GetFileInfoListInAlphabetFromDir(
       if (SubStrCmpResult < 0) {
         //
         // NewFileName is smaller. Find the right place to insert New file
-        // 
+        //
         break;
       } else if (SubStrCmpResult == 0) {
         // 
@@ -669,7 +673,7 @@ GetFileInfoListInAlphabetFromDir(
     //
     // If Find an entry in the list whose name is bigger than new FileInfo in alphabet order
     //    Insert it before this entry
-    // else 
+    // else
     //    Insert at the tail of this list (Link = FileInfoList)
     //
     InsertTailList(Link, &NewFileInfoEntry->Link);
@@ -711,14 +715,13 @@ EXIT:
 
 
 /**
-
-  This routine is called to get all qualified image from file from an given directory 
+  This routine is called to get all qualified image from file from an given directory
   in alphabetic order. All the file image is copied to allocated boottime memory. 
   Caller should free these memory
 
-  @param[in]  Dir            Directory file handler 
+  @param[in]  Dir            Directory file handler
   @param[in]  FileAttr       Attribute of file to be red from directory
-  @param[out] FilePtr        File images Info buffer red from directory 
+  @param[out] FilePtr        File images Info buffer red from directory
   @param[out] FileNum        File images number red from directory
 
   @retval EFI_SUCCESS
@@ -868,7 +871,6 @@ EXIT:
 }
 
 /**
-
   This routine is called to remove all qualified image from file from an given directory. 
 
   @param[in] Dir                  Directory file handler 
@@ -953,7 +955,6 @@ EXIT:
 }
 
 /**
-
   This routine is called to get all caspules from file. The capsule file image is
   copied to BS memory. Caller is responsible to free them.
 
@@ -1037,7 +1038,6 @@ EXIT:
 }
 
 /**
-
   This routine is called to check if CapsuleOnDisk flag in OsIndications Variable
   is enabled.
 
@@ -1077,7 +1077,6 @@ CoDCheckCapsuleOnDiskFlag(
 
 
 /**
-
   This routine is called to clear CapsuleOnDisk flags including OsIndications and BootNext variable
 
   @retval EFI_SUCCESS   All Capsule On Disk flags are cleared
@@ -1135,7 +1134,6 @@ CoDClearCapsuleOnDiskFlag(
 }
 
 /**
-
   This routine is called to clear Capsule On Disk Relocation flag
   The flag is the total size of capsules being relocated. It is saved
   in CapsuleOnDisk Relocation Info varible in form of UINT64
@@ -1171,7 +1169,6 @@ CoDCheckCapsuleRelocationInfo(
 }
 
 /**
-
   This routine is called to clear CapsuleOnDisk Relocation Info variable.
   Total Capsule On Disk length is recorded in this variable
 
@@ -1193,7 +1190,6 @@ CoDClearCapsuleRelocationInfo(
 }
 
 /**
-
   The function is called by Get Relocate Capsule on Disk from EFI system partition to a platform-specific
   NV storage device producing BlockIo protocol.  Relocation device path is identified by PcdCodRelocationDevPath.
   The connection logic in this function assumes it is a full device path.
@@ -1403,7 +1399,6 @@ EXIT:
 }
 
 /**
-
   Relocate Capsule on Disk from EFI system partition to a platform-specific NV storage device
   with BlockIo protocol.  Relocation device path, identified by PcdCodRelocationDevPath, must
   be a full device path.
@@ -1440,7 +1435,7 @@ CoDRelocateCapsule(
   DEBUG ((DEBUG_INFO, "GetAllCapsuleOnDisk Status - 0x%x\n", Status));
 
   //
-  // Make sure boot option device path connected.
+  // 1. boot option device path connected.
   // Only handle first device in boot option. Other optional device paths are described as OSV specific
   // FullDevice could contain extra directory & file info. So don't check connection status here.
   //
@@ -1470,12 +1465,12 @@ CoDRelocateCapsule(
     CapsuleTotalSize += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
   }
 
-  DEBUG((DEBUG_INFO, "CapsuleTotalSize %x\n", CapsuleTotalSize));
+  DEBUG((DEBUG_INFO, "RelocateCapsule: CapsuleTotalSize %x\n", CapsuleTotalSize));
   //
   // Check if CapsuleTotalSize. There could be reminder, so use LastBlock number directly
   //
   if (DivU64x32(CapsuleTotalSize, BlockIo->Media->BlockSize) >  BlockIo->Media->LastBlock) {
-    DEBUG((DEBUG_ERROR, "Relocation device isn't big enough to hold all Capsule on Disk!\n"));
+    DEBUG((DEBUG_ERROR, "RelocateCapsule: Relocation device isn't big enough to hold all Capsule on Disk!\n"));
     DEBUG((DEBUG_ERROR, "CapsuleTotalSize = %x\n", CapsuleTotalSize));
     DEBUG((DEBUG_ERROR, "RelocationDev BlockSize = %x LastBlock = %x\n", BlockIo->Media->BlockSize, BlockIo->Media->LastBlock));
     return EFI_OUT_OF_RESOURCES;
@@ -1485,7 +1480,7 @@ CoDRelocateCapsule(
   if (CapsuleDataBuf == NULL) {
     return EFI_OUT_OF_RESOURCES;
   }
-  
+
   //
   // Try to line up all the Capsule on Disk and write to relocation disk at one time. It could save some time in disk write
   //
@@ -1498,7 +1493,8 @@ CoDRelocateCapsule(
 
   if (!EFI_ERROR(Status)) {
     //
-    // Save Capsule On Disk Size to NV Storage
+    // Save Total Capsule On Disk image Size to "CodRelocationInfo"
+    // It is used in next reboot by TCB
     //
     Status = gRT->SetVariable(
                     COD_RELOCATION_INFO_VAR_NAME, 
@@ -1508,7 +1504,7 @@ CoDRelocateCapsule(
                     &CapsuleTotalSize
                     );
   } else {
-    DEBUG((DEBUG_ERROR, "RelocateCapsuleOnDisk WriteDisk error %x\n", Status));
+    DEBUG((DEBUG_ERROR, "RelocateCapsule: WriteDisk to relocate fails %x\n", Status));
   }
 
   FreePool(CapsuleDataBuf);
