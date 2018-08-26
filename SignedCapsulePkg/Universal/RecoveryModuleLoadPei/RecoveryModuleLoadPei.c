@@ -914,10 +914,9 @@ LoadRecoveryCapsule (
         break;
       }
 
-
       if (CodTotalSize != 0) {
         //
-        // Split TempCapsule buffer into different hobs
+        // Split TempCapsule buffer into different capsule vehicla hobs.
         //
         Status = RetrieveRelocatedCapsule(CapsuleBuffer, CodTotalSize);
       } else {
@@ -929,6 +928,12 @@ LoadRecoveryCapsule (
       return Status;
     }
   }
+
+  //
+  // Any attack against GPT, Relocation Info Variable or temp relocation file will result in no Capsule HOB and return EFI_NOT_FOUND.
+  // After flow to DXE phase. since no capsule hob is detected. Platform will clear Info flag and force restart.
+  // No volunerability will be exposed 
+  //
 
   return EFI_NOT_FOUND;
 }

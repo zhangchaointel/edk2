@@ -68,7 +68,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdFrameworkCompatibilitySupport         ## CONSUMES
 
 [depex]
-  gEfiPeiBootInRecoveryModePpiGuid
+  gEfiPeiBootInRecoveryModePpiGuid OR gEfiPeiBootInCapsuleOnDiskModePpiGuid
 
 [UserExtensions.TianoCore."ExtraFiles"]
   RecoveryModuleLoadPeiExtra.uni

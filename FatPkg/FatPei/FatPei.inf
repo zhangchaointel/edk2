@@ -74,7 +74,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdRecoveryFileName         ## CONSUMES
 
 [Depex]
-  gEfiPeiMemoryDiscoveredPpiGuid AND gEfiPeiBootInRecoveryModePpiGuid
+  gEfiPeiMemoryDiscoveredPpiGuid AND gEfiPeiBootInRecoveryModePpiGuid OR gEfiPeiBootInCapsuleOnDiskModePpiGuid
 
 [UserExtensions.TianoCore."ExtraFiles"]
   FatPeiExtra.uni

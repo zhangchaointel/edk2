@@ -61,7 +61,7 @@
   gPeiUsb2HostControllerPpiGuid                 ## SOMETIMES_CONSUMES
 
 [Depex]
-  gEfiPeiMemoryDiscoveredPpiGuid AND gEfiPeiBootInRecoveryModePpiGuid AND gPeiUsb2HostControllerPpiGuid OR gPeiUsbHostControllerPpiGuid
+  gEfiPeiMemoryDiscoveredPpiGuid AND gPeiUsb2HostControllerPpiGuid AND gEfiPeiBootInRecoveryModePpiGuid OR gEfiPeiBootInCapsuleOnDiskModePpiGuid
 
 [UserExtensions.TianoCore."ExtraFiles"]
   UsbBusPeiExtra.uni
