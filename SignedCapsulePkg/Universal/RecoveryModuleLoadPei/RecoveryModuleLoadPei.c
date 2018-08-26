@@ -33,10 +33,11 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <Ppi/RecoveryModule.h>
 #include <Ppi/DeviceRecoveryModule.h>
 #include <Ppi/FirmwareVolumeInfo.h>
+#include <Ppi/ReadOnlyVariable2.h>
+
 #include <Guid/FirmwareFileSystem2.h>
 #include <Guid/FmpCapsule.h>
 #include <Guid/EdkiiSystemFmpCapsule.h>
-
 //
 // The Library classes this module consumes
 //
@@ -47,6 +48,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 #include <Library/BaseMemoryLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
+#include <Library/CapsuleLib.h>
 
 #include "RecoveryModuleLoadPei.h"
 
@@ -99,6 +101,109 @@ ParseRecoveryDataFile (
   IN OUT  CONFIG_HEADER                 *ConfigHeader,
   IN OUT  RECOVERY_CONFIG_DATA          **RecoveryArray
   );
+
+/**
+  Gets the reserved long mode buffer.
+
+  @param  LongModeBuffer  Pointer to the long mode buffer for output.
+
+  @retval EFI_SUCCESS     Long mode buffer successfully retrieved.
+  @retval Others          Variable storing long mode buffer not found.
+
+**/
+EFI_STATUS
+GetCapsuleOnDiskInfo (
+  OUT UINT64 *CapsuleBufferSize
+  )
+{
+  EFI_STATUS                      Status;
+  UINTN                           Size;
+  EFI_PEI_READ_ONLY_VARIABLE2_PPI *PPIVariableServices;
+
+  Status = PeiServicesLocatePpi (
+             &gEfiPeiReadOnlyVariable2PpiGuid,
+             0,
+             NULL,
+             (VOID **) &PPIVariableServices
+             );
+  ASSERT_EFI_ERROR (Status);
+
+  Size = sizeof (UINT64);
+  Status = PPIVariableServices->GetVariable (
+                                  PPIVariableServices,
+                                  COD_RELOCATION_INFO_VAR_NAME,
+                                  &gEfiCapsuleVendorGuid,
+                                  NULL,
+                                  &Size,
+                                  CapsuleBufferSize
+                                  );
+                   
+  if (EFI_ERROR (Status) || Size != sizeof(UINT64)) {
+    DEBUG (( EFI_D_ERROR, "Error Get CodRelocationInfo variable %r!\n", Status));
+  }
+
+  if (Size != sizeof(UINT64)) {
+    Status = EFI_INVALID_PARAMETER;
+  }
+
+  return Status;
+}
+
+EFI_STATUS
+EFIAPI
+RetrieveRelocatedCapsule (
+  IN UINT8   *CapsuleBuf,
+  IN UINT64  CapsuleBufSize
+  )
+{
+  EFI_STATUS               Status;
+  UINTN                    Index;
+  UINT8                    *CapsuleBufEnd;
+  UINT8                    *CapsulePtr;
+  UINT32                   CapsuleSize;
+
+  DEBUG ((DEBUG_INFO, "ProcessRelocatedCapsule Enter\n"));
+
+  CapsuleBufEnd = CapsuleBuf + CapsuleBufSize; 
+
+  //
+  // TempCapsule file ntegrity Check
+  //
+  for (Index = 0, CapsulePtr = CapsuleBuf; CapsulePtr < CapsuleBufEnd; Index++) {
+    //
+    // More integrity check against Capsule Header to ensure no data corruption in NV Var & Relocation storage
+    //
+    if ((CapsuleBufEnd - CapsulePtr) < sizeof(EFI_CAPSULE_HEADER) ||
+        (MAX_ADDRESS - (PHYSICAL_ADDRESS)CapsulePtr) < ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize) {
+      Status = EFI_INVALID_PARAMETER;
+      goto EXIT;
+    }
+
+    CapsulePtr += ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
+  }
+
+  if (CapsulePtr > CapsuleBufEnd) {
+    Status = EFI_INVALID_PARAMETER;
+    goto EXIT;
+  }
+
+  //
+  // Re-iterate the capsule buffer to create Capsule hob for Capsule saved in relocated capsule file
+  //
+  for (Index = 0, CapsulePtr = CapsuleBuf; CapsulePtr < CapsuleBufEnd; Index++) {
+
+    CapsuleSize = ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
+    BuildCvHob ((EFI_PHYSICAL_ADDRESS)CapsulePtr, CapsuleSize);
+    DEBUG((DEBUG_INFO, "0x%x Capsule found in Capsule on Disk relocation file\n", Index));
+    DEBUG((DEBUG_INFO, "Capsule saved in address 0x%x size %x\n", Index, CapsuleSize));
+
+    CapsulePtr += CapsuleSize;
+  }
+
+EXIT:
+
+  return Status;
+}
 
 /**
   Return if this FMP is a system FMP or a device FMP, based upon FmpImageInfo.
@@ -743,6 +848,7 @@ LoadRecoveryCapsule (
   UINTN                               CapsuleSize;
   EFI_GUID                            CapsuleType;
   VOID                                *CapsuleBuffer;
+  UINT64                              CodTotalSize;
 
   DEBUG((DEBUG_INFO | DEBUG_LOAD, "Recovery Entry\n"));
 
@@ -767,6 +873,16 @@ LoadRecoveryCapsule (
     if (EFI_ERROR (Status)) {
       continue;
     }
+
+    //
+    // Check Capsule On Disk Relocation flag. If exists, load capsule & create Capsule Hob
+    //
+    CodTotalSize = 0;
+    Status = GetCapsuleOnDiskInfo(&CodTotalSize);
+    if (!EFI_ERROR(Status) && NumberRecoveryCapsules != 1) {
+      return EFI_NOT_FOUND;
+    }
+
     for (CapsuleInstance = 1; CapsuleInstance <= NumberRecoveryCapsules; CapsuleInstance++) {
       CapsuleSize = 0;
       Status = DeviceRecoveryPpi->GetRecoveryCapsuleInfo (
@@ -797,10 +913,19 @@ LoadRecoveryCapsule (
         FreePages (CapsuleBuffer, EFI_SIZE_TO_PAGES(CapsuleSize));
         break;
       }
-      //
-      // good, load capsule buffer
-      //
-      Status = ProcessRecoveryCapsule (CapsuleBuffer, CapsuleSize);
+
+
+      if (CodTotalSize != 0) {
+        //
+        // Split TempCapsule buffer into different hobs
+        //
+        Status = RetrieveRelocatedCapsule(CapsuleBuffer, CodTotalSize);
+      } else {
+        //
+        // good, load capsule buffer
+        //
+        Status = ProcessRecoveryCapsule (CapsuleBuffer, CapsuleSize);
+      }
       return Status;
     }
   }

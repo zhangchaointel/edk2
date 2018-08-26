@@ -58,6 +58,7 @@
   gRecoveryOnFatUsbDiskGuid                   ## SOMETIMES_CONSUMES   ## UNDEFINED
   gRecoveryOnFatIdeDiskGuid                   ## SOMETIMES_CONSUMES   ## UNDEFINED
   gRecoveryOnFatFloppyDiskGuid                ## SOMETIMES_CONSUMES   ## UNDEFINED
+  gEfiPartTypeUnusedGuid
 
 
 [Ppis]

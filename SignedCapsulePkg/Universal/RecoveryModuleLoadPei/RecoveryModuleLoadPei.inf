@@ -53,9 +53,12 @@
 [Ppis]
   gEfiPeiRecoveryModulePpiGuid            ## PRODUCES
   gEfiPeiDeviceRecoveryModulePpiGuid      ## CONSUMES
+  gEfiPeiReadOnlyVariable2PpiGuid         ## CONSUMES
 
 [Guids]
   gEfiFmpCapsuleGuid                      ## SOMETIMES_CONSUMES ## GUID
+  gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable L"CodRelocationInfo"
+  
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdSystemFmpCapsuleImageTypeIdGuid  ## CONSUMES

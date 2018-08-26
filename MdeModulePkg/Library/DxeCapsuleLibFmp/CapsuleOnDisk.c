@@ -240,7 +240,7 @@ GetBootOptionInOrder(
   Get Active EFI System Partition within GPT based on device path
 
   @param[in] DevicePath      Device path to find a active EFI System Partition
-  @param[out] DevicePath    BootList points to all boot options returned
+  @param[out] FsHandle     BootList points to all boot options returned
 
   @retval EFI_SUCCESS         Active EFI System Partition is succesfully found
               EFI_NOT_FOUND     No Active EFI System Partition is found
@@ -249,13 +249,14 @@ GetBootOptionInOrder(
 EFI_STATUS
 GetEfiSysPartitionFromDevPath(
   IN EFI_DEVICE_PATH_PROTOCOL         *DevicePath,
-  OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL **Fs
+  OUT EFI_HANDLE                      *FsHandle
   )
 {
-  EFI_STATUS                 Status;
-  EFI_DEVICE_PATH_PROTOCOL	 *TempDevicePath;
-  HARDDRIVE_DEVICE_PATH      *Hd;
-  EFI_HANDLE                 Handle;
+  EFI_STATUS                      Status;
+  EFI_DEVICE_PATH_PROTOCOL	      *TempDevicePath;
+  HARDDRIVE_DEVICE_PATH           *Hd;
+  EFI_HANDLE                      Handle;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
 
   //
   // Check if the device path contains GPT node 
@@ -283,8 +284,9 @@ GetEfiSysPartitionFromDevPath(
      // Search for simple file system on this handler
      //
      if (!EFI_ERROR(Status)) {
-       Status = gBS->HandleProtocol(Handle, &gEfiSimpleFileSystemProtocolGuid, Fs);
+       Status = gBS->HandleProtocol(Handle, &gEfiSimpleFileSystemProtocolGuid, &Fs);
        if (!EFI_ERROR(Status)) {
+         *FsHandle = Handle;
          return EFI_SUCCESS;
        }
      }
@@ -310,7 +312,7 @@ GetEfiSysPartitionFromDevPath(
 EFI_STATUS 
 GetEfiSysPartitionFromActiveBootOption(
   IN  UINTN                            MaxRetry,
-  OUT EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  **Fs
+  OUT EFI_HANDLE                       *FsHandle
   )
 {
   EFI_STATUS                   Status;
@@ -321,7 +323,7 @@ GetEfiSysPartitionFromActiveBootOption(
   EFI_DEVICE_PATH_PROTOCOL     *CurFullPath;
   EFI_DEVICE_PATH_PROTOCOL     *PreFullPath;
 
-  *Fs = NULL;
+  *FsHandle = NULL;
 
   Status = GetBootOptionInOrder(&BootOptionBuf, &BootOptionNum);
   if (EFI_ERROR(Status)) {
@@ -388,7 +390,7 @@ GetEfiSysPartitionFromActiveBootOption(
         if (DevicePathStr1 != NULL){
           DEBUG((DEBUG_INFO, "Full device path %s\n", DevicePathStr1));
           FreePool(DevicePathStr1);
-        } 
+        }
       );
 
       //
@@ -397,7 +399,7 @@ GetEfiSysPartitionFromActiveBootOption(
       // FullDevice could contain extra directory & file info. So don't check connection status here.
       //
       EfiBootManagerConnectDevicePath (CurFullPath, NULL);
-      Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
+      Status = GetEfiSysPartitionFromDevPath(CurFullPath, FsHandle);
 
       //
       // Some relocation device like USB need more time to get enumerated
@@ -408,7 +410,7 @@ GetEfiSysPartitionFromActiveBootOption(
         //
         // Search for EFI system partition protocol on full device path in Boot Option
         //
-        Status = GetEfiSysPartitionFromDevPath(CurFullPath, Fs);
+        Status = GetEfiSysPartitionFromDevPath(CurFullPath, FsHandle);
         if (!EFI_ERROR(Status)) {
           break;
         }
@@ -433,13 +435,13 @@ GetEfiSysPartitionFromActiveBootOption(
   //
   // No qualified EFI system partition found
   //
-  if (*Fs == NULL) {
+  if (*FsHandle == NULL) {
     Status = EFI_NOT_FOUND;
   }
 
   DEBUG_CODE (
     CHAR16 *DevicePathStr2;
-    if (*Fs != NULL) {
+    if (*FsHandle != NULL) {
       DevicePathStr2 = ConvertDevicePathToText(CurFullPath, TRUE, TRUE);
       if (DevicePathStr2 != NULL){
         DEBUG((DEBUG_INFO, "Found Active EFI System Partion on %s\n", DevicePathStr2));
@@ -969,9 +971,10 @@ EXIT:
 EFI_STATUS
 EFIAPI
 GetAllCapsuleOnDisk(
-  IN  UINTN         MaxRetry,
-  OUT IMAGE_INFO    **CapsulePtr,
-  OUT UINTN         *CapsuleNum
+  IN  UINTN                            MaxRetry,
+  OUT IMAGE_INFO                       **CapsulePtr,
+  OUT UINTN                            *CapsuleNum,
+  OUT EFI_HANDLE                       *FsHandle
   )
 {
   EFI_STATUS                       Status;
@@ -984,7 +987,12 @@ GetAllCapsuleOnDisk(
   FileDir     = NULL;
   *CapsuleNum = 0;
 
-  Status = GetEfiSysPartitionFromActiveBootOption(MaxRetry, &Fs);
+  Status = GetEfiSysPartitionFromActiveBootOption(MaxRetry, FsHandle);
+  if (EFI_ERROR(Status)) {
+    return Status;
+  }
+
+  Status = gBS->HandleProtocol(*FsHandle, &gEfiSimpleFileSystemProtocolGuid, &Fs);
   if (EFI_ERROR(Status)) {
     return Status;
   }
@@ -1418,28 +1426,43 @@ CoDRelocateCapsule(
   UINTN     MaxRetry
   )
 {
-  EFI_STATUS               Status;
-  UINTN                    CapsuleOnDiskNum;
-  UINTN                    Index;
-  UINT64                   CapsuleTotalSize;
-  IMAGE_INFO               *CapsuleOnDiskBuf;
-  EFI_HANDLE               Handle;
-  EFI_DISK_IO_PROTOCOL     *DiskIo;
-  EFI_BLOCK_IO_PROTOCOL    *BlockIo;
-  UINT8                    *CapsuleDataBuf;
-  UINT8                    *CapsulePtr;
+  EFI_STATUS                      Status;
+  UINTN                           CapsuleOnDiskNum;
+  UINTN                           Index;
+  UINTN                           TempSize;
+  UINT64                          CapsuleTotalSize;
+  IMAGE_INFO                      *CapsuleOnDiskBuf;
+  EFI_HANDLE                      Handle;
+  EFI_BLOCK_IO_PROTOCOL           *BlockIo;
+  UINT8                           *CapsuleDataBuf;
+  UINT8                           *CapsulePtr;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
+  EFI_HANDLE                      FsHandle;
+  UINTN                           DefRelocationDevPath;
+  EFI_FILE_HANDLE                 RootDir;
+  EFI_FILE_HANDLE                 TempCodFile;
 
   DEBUG ((DEBUG_INFO, "CapsuleOnDisk RelocateCapsule Enter\n"));
 
-  Status = GetAllCapsuleOnDisk(MaxRetry, &CapsuleOnDiskBuf, &CapsuleOnDiskNum);
-  DEBUG ((DEBUG_INFO, "GetAllCapsuleOnDisk Status - 0x%x\n", Status));
+  //
+  // 1. Load all Capsule On Disks in to memory
+  //
+  Status = GetAllCapsuleOnDisk(MaxRetry, &CapsuleOnDiskBuf, &CapsuleOnDiskNum, &FsHandle);
+  if (EFI_ERROR(Status) || CapsuleOnDiskNum == 0) {
+    DEBUG ((DEBUG_INFO, "GetAllCapsuleOnDisk Status - 0x%x\n", Status));
+    return EFI_NOT_FOUND;
+  }
 
   //
-  // 1. boot option device path connected.
+  // 2. Connect platform special dev path or Use EFI System Partition as relocation device
+  //
   // Only handle first device in boot option. Other optional device paths are described as OSV specific
   // FullDevice could contain extra directory & file info. So don't check connection status here.
   //
-  EfiBootManagerConnectDevicePath ((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), &Handle);
+  DefRelocationDevPath = 0xFFFFFFFF;
+  if (0 == CompareMem(PcdGetPtr(PcdCodRelocationDevPath), &DefRelocationDevPath, sizeof(UINT32))) {
+    EfiBootManagerConnectDevicePath ((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), &Handle);
+  }
 
   Status = gBS->HandleProtocol(Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
   if (EFI_ERROR(Status) || BlockIo->Media->ReadOnly) {
@@ -1447,7 +1470,7 @@ CoDRelocateCapsule(
     return Status;
   }
 
-  Status = gBS->HandleProtocol(Handle, &gEfiDiskIoProtocolGuid, (VOID **)&DiskIo);
+  Status = gBS->HandleProtocol(Handle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
   if (EFI_ERROR(Status)) {
     return Status;
   }
@@ -1489,23 +1512,73 @@ CoDRelocateCapsule(
     CapsulePtr += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
   }
 
-  Status = DiskIo->WriteDisk(DiskIo, BlockIo->Media->MediaId, 0, (UINTN)CapsuleTotalSize, CapsuleDataBuf);
-
-  if (!EFI_ERROR(Status)) {
-    //
-    // Save Total Capsule On Disk image Size to "CodRelocationInfo"
-    // It is used in next reboot by TCB
-    //
-    Status = gRT->SetVariable(
-                    COD_RELOCATION_INFO_VAR_NAME, 
-                    &gEfiCapsuleVendorGuid, 
-                    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
-                    sizeof (UINT64),
-                    &CapsuleTotalSize
-                    );
-  } else {
-    DEBUG((DEBUG_ERROR, "RelocateCapsule: WriteDisk to relocate fails %x\n", Status));
+  //
+  // 5. Flash all Capsules on Disk to TempCoD.tmp under RootDir
+  //
+  Status = Fs->OpenVolume(Fs, &RootDir);
+  if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR, "RelocateCapsule: OpenVolume error. %x\n", Status));
+    goto EXIT;
   }
+
+  Status = RootDir->Open(
+                      RootDir,
+                      &TempCodFile,
+                      L"TempCoD.tmp",
+                      EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE,
+                      EFI_FILE_RESERVED
+                      );
+  if (EFI_ERROR(Status)) {
+    //
+    // Error handling code to prevent malicious code to hold this file to block capsule on disk 
+    //
+    TempCodFile->Delete(TempCodFile);
+  }
+  Status = RootDir->Open(
+                      RootDir,
+                      &TempCodFile,
+                      L"TempCoD.tmp",
+                      EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
+                      EFI_FILE_RESERVED
+                      );
+  if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR, "RelocateCapsule: Open TemCoD.tmp error. %x\n", Status));
+    goto EXIT;
+  }
+
+  //
+  // Always write at the begining of TempCap file
+  //
+  TempSize = (UINTN)CapsuleTotalSize;
+  Status = TempCodFile->Write(
+                          TempCodFile,
+                          &TempSize,
+                          CapsuleDataBuf
+                          );
+  if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR, "RelocateCapsule: Write TemCoD.tmp error. %x\n", Status));
+    goto EXIT;
+  }
+
+  if (TempSize != CapsuleTotalSize) {
+    Status = EFI_DEVICE_ERROR;
+    goto EXIT;
+  }
+
+  //
+  // Save Total Capsule On Disk image Size to "CodRelocationInfo"
+  // It is used in next reboot by TCB
+  //
+  Status = gRT->SetVariable(
+                   COD_RELOCATION_INFO_VAR_NAME, 
+                   &gEfiCapsuleVendorGuid, 
+                   EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+                   sizeof (UINT64),
+                   &CapsuleTotalSize
+                   );
+
+
+EXIT:
 
   FreePool(CapsuleDataBuf);
 

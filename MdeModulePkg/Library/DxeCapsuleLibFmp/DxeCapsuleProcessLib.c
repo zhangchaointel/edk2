@@ -108,56 +108,20 @@ InitCapsulePtr (
   VOID
   )
 {
-  EFI_STATUS                  Status;
   EFI_PEI_HOB_POINTERS        HobPointer;
   UINTN                       Index;
-  UINT64                      CapsuleTotalSize;
-  EFI_PHYSICAL_ADDRESS        *CapsuleBuf;
 
   //
-  // 1. ------------Get Capsule Number ------------
+  // 1. Capsule on RAM or Capsule on Disk -- All capsule images from hob
   //
-  if (PcdGetBool(PcdCapsuleOnDiskSupport)) {
-    //
-    // 1.1 Capsule On Disk -- All capsule image from relocation storage
-    //
-    Status = CoDCheckCapsuleRelocationInfo(&CapsuleTotalSize);
-    if (EFI_ERROR(Status)) {
-      //
-      // Force to clear relocation address to avoid deadloop
-      //
-      CoDClearCapsuleRelocationInfo();
-      return Status;
+  HobPointer.Raw = GetHobList ();
+  while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
+    if (!IsValidCapsuleHeader((VOID *)(UINTN)HobPointer.Capsule->BaseAddress, HobPointer.Capsule->Length)) {
+      HobPointer.Header->HobType = EFI_HOB_TYPE_UNUSED; // Mark this hob as invalid
+    } else {
+      mCapsuleTotalNumber++;
     }
-
-    //
-    // Find all Capsule on Disk from platform specific relocation device
-    //
-    Status = CoDRetrieveRelocatedCapsule (
-               20,
-               &CapsuleBuf,
-               &mCapsuleTotalNumber
-               );
-    CoDClearCapsuleRelocationInfo();
-
-    DEBUG ((DEBUG_INFO, "CoDRetrieveRelocatedCapsule Status - 0x%x\n", Status));
-
-    if (EFI_ERROR(Status)) {
-      return Status;
-    }
-  } else {
-    //
-    // 1.2 Capsule On RAM -- All capsule images from hob
-    //
-    HobPointer.Raw = GetHobList ();
-    while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
-      if (!IsValidCapsuleHeader((VOID *)(UINTN)HobPointer.Capsule->BaseAddress, HobPointer.Capsule->Length)) {
-        HobPointer.Header->HobType = EFI_HOB_TYPE_UNUSED; // Mark this hob as invalid
-      } else {
-        mCapsuleTotalNumber++;
-      }
-      HobPointer.Raw = GET_NEXT_HOB (HobPointer);
-    }
+    HobPointer.Raw = GET_NEXT_HOB (HobPointer);
   }
 
   DEBUG ((DEBUG_INFO, "mCapsuleTotalNumber - 0x%x\n", mCapsuleTotalNumber));
@@ -186,25 +150,13 @@ InitCapsulePtr (
   SetMemN (mCapsuleStatusArray, sizeof (EFI_STATUS) * mCapsuleTotalNumber, EFI_NOT_READY);
 
   //
-  // 3. ------------Get all the capsules --------------
+  // Find Capsule on RAM images from hob
   //
-  if (PcdGetBool(PcdCapsuleOnDiskSupport)) {
-    for (Index = 0; Index < mCapsuleTotalNumber; Index++) {
-      mCapsulePtr [Index] = (VOID *)(CapsuleBuf[Index]);
-    }
-    if (CapsuleBuf != NULL) {
-      FreePool(CapsuleBuf);
-    }
-  } else {
-    //
-    // Find Capsule on RAM images from hob
-    //
-    HobPointer.Raw = GetHobList ();
-    Index = 0;
-    while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
-      mCapsulePtr [Index++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
-      HobPointer.Raw = GET_NEXT_HOB (HobPointer);
-    }
+  HobPointer.Raw = GetHobList ();
+  Index = 0;
+  while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
+    mCapsulePtr [Index++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
+    HobPointer.Raw = GET_NEXT_HOB (HobPointer);
   }
 
   return EFI_SUCCESS;

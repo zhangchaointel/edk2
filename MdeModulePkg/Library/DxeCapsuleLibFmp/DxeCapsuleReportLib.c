@@ -417,6 +417,7 @@ InitCapsuleVariable (
   InitCapsuleUpdateVariable();
   InitCapsuleMaxVariable();
   InitCapsuleLastVariable();
+  CoDClearCapsuleRelocationInfo();
   //
   // No need to clear L"Capsule####", because OS/APP should refer L"CapsuleLast"
   // to check status and delete them.

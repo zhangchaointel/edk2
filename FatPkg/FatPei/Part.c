@@ -16,6 +16,7 @@ WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
 
 #include <IndustryStandard/Mbr.h>
 #include <IndustryStandard/ElTorito.h>
+#include <Uefi/UefiGpt.h>
 #include "FatLitePeim.h"
 
 /**
@@ -56,6 +57,24 @@ FatFindMbrPartitions (
 
 
 /**
+  This function finds GPT partitions. Main algorithm
+  is ported from DXE partition driver.
+
+  @param  PrivateData       The global memory map 
+  @param  ParentBlockDevNo  The parent block device 
+
+  @retval TRUE              New partitions are detected and logical block devices 
+                            are  added to block device array 
+  @retval FALSE             No New partitions are added;
+
+**/
+BOOLEAN
+FatFindGptPartitions (
+  IN  PEI_FAT_PRIVATE_DATA *PrivateData,
+  IN  UINTN                ParentBlockDevNo
+  );
+
+/**
   This function finds partitions (logical devices) in physical block devices.
 
   @param  PrivateData       Global memory map for accessing global variables.
@@ -74,9 +93,16 @@ FatFindPartitions (
 
     for (Index = 0; Index < PrivateData->BlockDeviceCount; Index++) {
       if (!PrivateData->BlockDevice[Index].PartitionChecked) {
-        Found = FatFindMbrPartitions (PrivateData, Index);
-        if (!Found) {
-          Found = FatFindEltoritoPartitions (PrivateData, Index);
+        if (FatFindGptPartitions (PrivateData, Index)) {
+          continue;
+        }
+
+        if (FatFindMbrPartitions (PrivateData, Index)) {
+          continue;
+        }
+
+        if (FatFindEltoritoPartitions (PrivateData, Index)) {
+          continue;
         }
       }
     }
@@ -464,3 +490,169 @@ Done:
   ParentBlockDev->PartitionChecked = TRUE;
   return Found;
 }
+
+/**
+  This function finds GPT partitions. Main algorithm
+  is ported from DXE partition driver.
+
+  @param  PrivateData       The global memory map 
+  @param  ParentBlockDevNo  The parent block device 
+
+  @retval TRUE              New partitions are detected and logical block devices 
+                            are  added to block device array 
+  @retval FALSE             No New partitions are added;
+
+**/
+BOOLEAN
+FatFindGptPartitions (
+  IN  PEI_FAT_PRIVATE_DATA *PrivateData,
+  IN  UINTN                ParentBlockDevNo
+  )
+{
+  EFI_STATUS                   Status;
+  MASTER_BOOT_RECORD           *ProtectiveMbr;
+  UINTN                        Index;
+  BOOLEAN                      Found;
+  PEI_FAT_BLOCK_DEVICE         *ParentBlockDev;
+  PEI_FAT_BLOCK_DEVICE         *BlockDev;
+  EFI_PARTITION_TABLE_HEADER   *PrimaryHeader;
+  EFI_PARTITION_TABLE_HEADER   *BackupHeader;
+  EFI_PARTITION_ENTRY          *PartEntry;
+  UINT64                       PartEntryBufSize;
+
+  if (ParentBlockDevNo > PEI_FAT_MAX_BLOCK_DEVICE - 1) {
+    return FALSE;
+  }
+
+  ParentBlockDev  = &(PrivateData->BlockDevice[ParentBlockDevNo]);
+
+  Found         = FALSE;
+  ProtectiveMbr = (MASTER_BOOT_RECORD *) PrivateData->BlockData;
+
+  Status = FatReadBlock (
+            PrivateData,
+            ParentBlockDevNo,
+            0,
+            ParentBlockDev->BlockSize,
+            ProtectiveMbr
+            );
+
+  //
+  // Verify that the Protective MBR is valid
+  //
+  for (Index = 0; Index < MAX_MBR_PARTITIONS; Index++) {
+    if (ProtectiveMbr->Partition[Index].BootIndicator == 0x00 &&
+        ProtectiveMbr->Partition[Index].OSIndicator == PMBR_GPT_PARTITION &&
+        UNPACK_UINT32 (ProtectiveMbr->Partition[Index].StartingLBA) == 1
+        ) {
+      break;
+    }
+  }
+
+  if (Index == MAX_MBR_PARTITIONS) {
+    goto Done;
+  }
+
+  //
+  // Allocate the GPT structures
+  //
+  Status = PeiServicesAllocatePool (sizeof (EFI_PARTITION_TABLE_HEADER), &PrimaryHeader);
+  if (EFI_ERROR(Status)) {
+    goto Done;
+  }
+
+  Status = PeiServicesAllocatePool (sizeof (EFI_PARTITION_TABLE_HEADER), &BackupHeader);
+  if (EFI_ERROR(Status)) {
+    goto Done;
+  }
+
+  //
+  // Todo : Add more checks against primary and backup partition tables
+  //
+
+  //
+  // Todo : Read the EFI Partition Entries. Round up to Block Size.
+  //
+  PartEntryBufSize = PrimaryHeader->NumberOfPartitionEntries * PrimaryHeader->SizeOfPartitionEntry;
+  PartEntryBufSize = (PartEntryBufSize + ParentBlockDev->BlockSize) & ParentBlockDev->BlockSize;
+  Status = PeiServicesAllocatePool (ParentBlockDev->BlockSize, &PartEntry);
+  if (EFI_ERROR(Status)) {
+    DEBUG ((EFI_D_ERROR, "Allocate pool error\n"));
+    goto Done;
+  }
+
+  Status = FatReadBlock (
+             PrivateData,
+             ParentBlockDevNo,
+             PrimaryHeader->PartitionEntryLBA,
+             (UINTN)PartEntryBufSize,
+             PartEntry
+             );
+
+  if (EFI_ERROR (Status)) {
+    DEBUG ((EFI_D_ERROR, " Partition Entry ReadDisk error\n"));
+    goto Done;
+  }
+
+  DEBUG ((EFI_D_INFO, " Partition entries read block success\n"));
+
+  DEBUG ((EFI_D_INFO, " Number of partition entries: %d\n", PrimaryHeader->NumberOfPartitionEntries));
+
+  /*
+  PEntryStatus = AllocateZeroPool (PrimaryHeader->NumberOfPartitionEntries * sizeof (EFI_PARTITION_ENTRY_STATUS));
+  if (PEntryStatus == NULL) {
+    DEBUG ((EFI_D_ERROR, "Allocate pool error\n"));
+    goto Done;
+  }
+  */
+
+  //
+  // Todo: Check the integrity of partition entries
+  //
+
+  //
+  // If we got this far the GPT layout of the disk is valid and we should return true
+  //
+
+  //
+  // Create child device handles
+  //
+  for (Index = 0; Index < PrimaryHeader->NumberOfPartitionEntries; Index++) {
+    if (CompareGuid (&PartEntry[Index].PartitionTypeGUID, &gEfiPartTypeUnusedGuid)) {
+      //
+      // Don't use null EFI Partition Entries, Invalid Partition Entries or OS specific
+      // partition Entries
+      //
+      continue;
+    }
+
+    if (PrivateData->BlockDeviceCount < PEI_FAT_MAX_BLOCK_DEVICE) {
+
+      Found                       = TRUE;
+
+      BlockDev                    = &(PrivateData->BlockDevice[PrivateData->BlockDeviceCount]);
+
+      BlockDev->BlockSize         = ParentBlockDev->BlockSize;
+      BlockDev->LastBlock         = PartEntry[Index].EndingLBA;
+      BlockDev->IoAlign           = ParentBlockDev->IoAlign;
+      BlockDev->Logical           = TRUE;
+      BlockDev->PartitionChecked  = FALSE;
+      BlockDev->StartingPos = MultU64x32 (
+                                PartEntry[Index].StartingLBA,
+                                ParentBlockDev->BlockSize
+                                );
+      BlockDev->ParentDevNo = ParentBlockDevNo;
+
+      PrivateData->BlockDeviceCount++;
+
+    }
+  }
+
+
+Done:
+
+  ParentBlockDev->PartitionChecked = TRUE;
+  return Found;
+}
+
+
