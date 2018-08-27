@@ -1437,7 +1437,7 @@ CoDRelocateCapsule(
   UINT8                           *CapsuleDataBuf;
   UINT8                           *CapsulePtr;
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
-  EFI_HANDLE                      FsHandle;
+  EFI_HANDLE                      Handle;
   UINTN                           DefRelocationDevPath;
   EFI_FILE_HANDLE                 RootDir;
   EFI_FILE_HANDLE                 TempCodFile;
@@ -1447,7 +1447,7 @@ CoDRelocateCapsule(
   //
   // 1. Load all Capsule On Disks in to memory
   //
-  Status = GetAllCapsuleOnDisk(MaxRetry, &CapsuleOnDiskBuf, &CapsuleOnDiskNum, &FsHandle);
+  Status = GetAllCapsuleOnDisk(MaxRetry, &CapsuleOnDiskBuf, &CapsuleOnDiskNum, &Handle);
   if (EFI_ERROR(Status) || CapsuleOnDiskNum == 0) {
     DEBUG ((DEBUG_INFO, "GetAllCapsuleOnDisk Status - 0x%x\n", Status));
     return EFI_NOT_FOUND;
@@ -1460,7 +1460,7 @@ CoDRelocateCapsule(
   // FullDevice could contain extra directory & file info. So don't check connection status here.
   //
   DefRelocationDevPath = 0xFFFFFFFF;
-  if (0 == CompareMem(PcdGetPtr(PcdCodRelocationDevPath), &DefRelocationDevPath, sizeof(UINT32))) {
+  if (0 != CompareMem(PcdGetPtr(PcdCodRelocationDevPath), &DefRelocationDevPath, sizeof(UINT32))) {
     EfiBootManagerConnectDevicePath ((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), &Handle);
   }
 
