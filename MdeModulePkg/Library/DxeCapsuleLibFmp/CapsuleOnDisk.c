@@ -1437,7 +1437,6 @@ CoDRelocateCapsule(
   UINT8                           *CapsuleDataBuf;
   UINT8                           *CapsulePtr;
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
-  EFI_HANDLE                      Handle;
   UINTN                           DefRelocationDevPath;
   EFI_FILE_HANDLE                 RootDir;
   EFI_FILE_HANDLE                 TempCodFile;
