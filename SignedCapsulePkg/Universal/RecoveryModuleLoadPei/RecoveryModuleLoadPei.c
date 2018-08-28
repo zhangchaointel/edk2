@@ -162,12 +162,12 @@ RetrieveRelocatedCapsule (
   UINT8                    *CapsulePtr;
   UINT32                   CapsuleSize;
 
-  DEBUG ((DEBUG_INFO, "ProcessRelocatedCapsule Enter\n"));
+  DEBUG ((DEBUG_INFO, "ProcessRelocatedCapsule CapsuleBuf %x BufSize %x\n", CapsuleBuf, CapsuleBufSize));
 
   CapsuleBufEnd = CapsuleBuf + CapsuleBufSize; 
 
   //
-  // TempCapsule file ntegrity Check
+  // TempCapsule file integrity Check
   //
   for (Index = 0, CapsulePtr = CapsuleBuf; CapsulePtr < CapsuleBufEnd; Index++) {
     //
@@ -193,10 +193,9 @@ RetrieveRelocatedCapsule (
   for (Index = 0, CapsulePtr = CapsuleBuf; CapsulePtr < CapsuleBufEnd; Index++) {
 
     CapsuleSize = ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
-    BuildCvHob ((EFI_PHYSICAL_ADDRESS)CapsulePtr, CapsuleSize);
+    BuildCvHob ((EFI_PHYSICAL_ADDRESS)(UINTN)CapsulePtr, CapsuleSize);
     DEBUG((DEBUG_INFO, "0x%x Capsule found in Capsule on Disk relocation file\n", Index));
-    DEBUG((DEBUG_INFO, "Capsule saved in address 0x%x size %x\n", Index, CapsuleSize));
-
+    DEBUG((DEBUG_INFO, "Capsule saved in address %x size %x\n", CapsulePtr, CapsuleSize));
     CapsulePtr += CapsuleSize;
   }
 
@@ -897,11 +896,24 @@ LoadRecoveryCapsule (
         break;
       }
 
-      CapsuleBuffer = AllocatePages (EFI_SIZE_TO_PAGES(CapsuleSize));
+      if (CodTotalSize != 0) {
+        //
+        // Allocate the memory so that it gets preserved into DXE. 
+        // Capsule is special because it may need to populate to system table
+        //
+        CapsuleBuffer = AllocateRuntimePages (EFI_SIZE_TO_PAGES (CapsuleSize));
+      } else {
+        //
+        // Recovery path. use boot service memory
+        //
+        CapsuleBuffer = AllocatePages (EFI_SIZE_TO_PAGES(CapsuleSize));
+      }
+
       if (CapsuleBuffer == NULL) {
         DEBUG ((DEBUG_ERROR, "LoadRecoveryCapsule - AllocatePool fail\n"));
         continue;
       }
+
       Status = DeviceRecoveryPpi->LoadRecoveryCapsule (
                                     (EFI_PEI_SERVICES **)PeiServices,
                                     DeviceRecoveryPpi,

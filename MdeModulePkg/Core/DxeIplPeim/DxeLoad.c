@@ -307,7 +307,7 @@ DxeLoadCore (
                (VOID **) &PeiRecovery
                );
 
-    if (EFI_ERROR (Status)) {
+    if (EFI_ERROR (Status) && BootMode == BOOT_IN_RECOVERY_MODE) {
       DEBUG ((DEBUG_ERROR, "Locate Recovery PPI Failed.(Status = %r)\n", Status));
       //
       // Report Status code the failure of locating Recovery PPI 
@@ -321,7 +321,7 @@ DxeLoadCore (
 
     REPORT_STATUS_CODE (EFI_PROGRESS_CODE, (EFI_SOFTWARE_PEI_MODULE | EFI_SW_PEI_PC_CAPSULE_LOAD));
     Status = PeiRecovery->LoadRecoveryCapsule (PeiServices, PeiRecovery);
-    if (EFI_ERROR (Status)) {
+    if (EFI_ERROR (Status) && BootMode == BOOT_IN_RECOVERY_MODE) {
       DEBUG ((DEBUG_ERROR, "Load Recovery Capsule Failed.(Status = %r)\n", Status));
       //
       // Report Status code that recovery image can not be found
