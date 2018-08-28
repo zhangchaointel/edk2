@@ -298,7 +298,7 @@ DxeLoadCore (
     
     Status = S3Resume->S3RestoreConfig2 (S3Resume);
     ASSERT_EFI_ERROR (Status);
-  } else if (BootMode == BOOT_IN_RECOVERY_MODE) {
+  } else if (BootMode == BOOT_IN_RECOVERY_MODE || BootMode == BOOT_ON_FLASH_UPDATE) {
     REPORT_STATUS_CODE (EFI_PROGRESS_CODE, (EFI_SOFTWARE_PEI_MODULE | EFI_SW_PEI_PC_RECOVERY_BEGIN));
     Status = PeiServicesLocatePpi (
                &gEfiPeiRecoveryModulePpiGuid,

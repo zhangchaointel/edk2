@@ -1429,10 +1429,13 @@ CoDRelocateCapsule(
   EFI_STATUS                      Status;
   UINTN                           CapsuleOnDiskNum;
   UINTN                           Index;
-  UINTN                           TempSize;
+  UINTN                           DataSize;
   UINT64                          CapsuleTotalSize;
   IMAGE_INFO                      *CapsuleOnDiskBuf;
   EFI_HANDLE                      Handle;
+  EFI_HANDLE                      TempHandle;
+  EFI_HANDLE                      *HandleBuffer;
+  UINTN                           NumberOfHandles;
   EFI_BLOCK_IO_PROTOCOL           *BlockIo;
   UINT8                           *CapsuleDataBuf;
   UINT8                           *CapsulePtr;
@@ -1440,6 +1443,12 @@ CoDRelocateCapsule(
   UINTN                           DefRelocationDevPath;
   EFI_FILE_HANDLE                 RootDir;
   EFI_FILE_HANDLE                 TempCodFile;
+  EFI_DEVICE_PATH                 *TempDevicePath;
+
+  RootDir         = NULL;
+  TempCodFile     = NULL;
+  HandleBuffer    = NULL;
+  NumberOfHandles = 0;
 
   DEBUG ((DEBUG_INFO, "CapsuleOnDisk RelocateCapsule Enter\n"));
 
@@ -1448,31 +1457,76 @@ CoDRelocateCapsule(
   //
   Status = GetAllCapsuleOnDisk(MaxRetry, &CapsuleOnDiskBuf, &CapsuleOnDiskNum, &Handle);
   if (EFI_ERROR(Status) || CapsuleOnDiskNum == 0) {
-    DEBUG ((DEBUG_INFO, "GetAllCapsuleOnDisk Status - 0x%x\n", Status));
+    DEBUG ((DEBUG_INFO, "RelocateCapsule: GetAllCapsuleOnDisk Status - 0x%x\n", Status));
     return EFI_NOT_FOUND;
   }
+  DEBUG((DEBUG_INFO, "RelocateCapsule:1\n"));
 
   //
   // 2. Connect platform special dev path or Use EFI System Partition as relocation device
-  //
-  // Only handle first device in boot option. Other optional device paths are described as OSV specific
-  // FullDevice could contain extra directory & file info. So don't check connection status here.
+
   //
   DefRelocationDevPath = 0xFFFFFFFF;
   if (0 != CompareMem(PcdGetPtr(PcdCodRelocationDevPath), &DefRelocationDevPath, sizeof(UINT32))) {
-    EfiBootManagerConnectDevicePath ((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), &Handle);
-  }
+    Status = EfiBootManagerConnectDevicePath ((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), &TempHandle);
+    if (EFI_ERROR(Status)) {
+      DEBUG ((DEBUG_INFO, "RelocateCapsule: EfiBootManagerConnectDevicePath Status - 0x%x\n", Status));
+      return Status;
+    }
+
+    //
+    // Connect all the child handle. Partition & FAT drivers are allowed in this case
+    //
+    gBS->ConnectController (TempHandle, NULL, NULL, TRUE);
+    Status = gBS->LocateHandleBuffer(
+                    ByProtocol,
+                    &gEfiSimpleFileSystemProtocolGuid,
+                    NULL,
+                    &NumberOfHandles,
+                    &HandleBuffer
+                    );
+    if (EFI_ERROR(Status)) {
+      DEBUG ((DEBUG_INFO, "RelocateCapsule: LocateHandleBuffer Status - 0x%x\n", Status));
+      return Status;
+    }
+
+    //
+    // Find first Simple File System Handle which can match PcdCodRelocationDevPath
+    //
+    for (Index = 0; Index < NumberOfHandles; Index++) {
+      Status = gBS->HandleProtocol(HandleBuffer[Index], &gEfiDevicePathProtocolGuid, (VOID **)&TempDevicePath);
+      if (EFI_ERROR(Status)) {
+        continue;
+      }
+
+      DataSize = GetDevicePathSize((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath)) - sizeof(EFI_DEVICE_PATH);
+      if (0 == CompareMem((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), TempDevicePath, DataSize)) {
+        Handle = HandleBuffer[Index];
+        break;
+      }
+    }
+
+    FreePool(HandleBuffer);
+
+    if (Index == NumberOfHandles) {
+      DEBUG ((DEBUG_INFO, "RelocateCapsule: No simple file system protocol found.\n"));
+      return EFI_NOT_FOUND;
+    }
+  } 
+  DEBUG((DEBUG_INFO, "RelocateCapsule:2\n"));
 
   Status = gBS->HandleProtocol(Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
   if (EFI_ERROR(Status) || BlockIo->Media->ReadOnly) {
     DEBUG((DEBUG_ERROR, "Fail to find Capsule on Disk relocation BlockIo device or device is ReadOnly!\n"));
     return Status;
   }
+  DEBUG((DEBUG_INFO, "RelocateCapsule:3\n"));
 
   Status = gBS->HandleProtocol(Handle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
   if (EFI_ERROR(Status)) {
     return Status;
   }
+  DEBUG((DEBUG_INFO, "RelocateCapsule:4\n"));
 
   //
   // Check if device used to relocate Capsule On Disk is big enough
@@ -1525,9 +1579,9 @@ CoDRelocateCapsule(
                       &TempCodFile,
                       L"TempCoD.tmp",
                       EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE,
-                      EFI_FILE_RESERVED
+                      0
                       );
-  if (EFI_ERROR(Status)) {
+  if (!EFI_ERROR(Status)) {
     //
     // Error handling code to prevent malicious code to hold this file to block capsule on disk 
     //
@@ -1538,7 +1592,7 @@ CoDRelocateCapsule(
                       &TempCodFile,
                       L"TempCoD.tmp",
                       EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
-                      EFI_FILE_RESERVED
+                      0
                       );
   if (EFI_ERROR(Status)) {
     DEBUG((DEBUG_ERROR, "RelocateCapsule: Open TemCoD.tmp error. %x\n", Status));
@@ -1548,10 +1602,10 @@ CoDRelocateCapsule(
   //
   // Always write at the begining of TempCap file
   //
-  TempSize = (UINTN)CapsuleTotalSize;
+  DataSize = (UINTN)CapsuleTotalSize;
   Status = TempCodFile->Write(
                           TempCodFile,
-                          &TempSize,
+                          &DataSize,
                           CapsuleDataBuf
                           );
   if (EFI_ERROR(Status)) {
@@ -1559,7 +1613,7 @@ CoDRelocateCapsule(
     goto EXIT;
   }
 
-  if (TempSize != CapsuleTotalSize) {
+  if (DataSize != CapsuleTotalSize) {
     Status = EFI_DEVICE_ERROR;
     goto EXIT;
   }
@@ -1589,6 +1643,14 @@ EXIT:
     FreePool(CapsuleOnDiskBuf[Index].FileInfo);
   }
   FreePool(CapsuleOnDiskBuf);
+
+  if (TempCodFile != NULL) {
+    TempCodFile->Close (TempCodFile);
+  }
+
+  if (RootDir != NULL) {
+    RootDir->Close (RootDir);
+  }
 
   return Status;
 }

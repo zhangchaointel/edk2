@@ -495,7 +495,7 @@ InitializeRecoveryModule (
   UINTN       BootMode;
 
   BootMode = GetBootModeHob();
-  ASSERT(BootMode == BOOT_IN_RECOVERY_MODE);
+  ASSERT(BootMode == BOOT_IN_RECOVERY_MODE || BOOT_ON_FLASH_UPDATE);
 
   Status = (**PeiServices).InstallPpi (PeiServices, &mRecoveryPpiList);
   ASSERT_EFI_ERROR (Status);
