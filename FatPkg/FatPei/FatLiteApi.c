@@ -362,6 +362,23 @@ GetNumberRecoveryCapsules (
   UINTN                 Index;
   UINTN                 RecoveryCapsuleCount;
   PEI_FILE_HANDLE       Handle;
+  CHAR16                *FileName;
+  VOID                  *RecoveryModePpi;
+
+  //
+  // Check Capsule On Disk Relocation flag. If exists, load capsule & create Capsule Hob
+  //
+  Status = PeiServicesLocatePpi (
+             &gEfiPeiBootInRecoveryModePpiGuid,
+             0,
+             NULL,
+             &RecoveryModePpi
+             );
+  if (!EFI_ERROR(Status)) {
+    FileName = (CHAR16 *)PcdGetPtr(PcdRecoveryFileName);
+  } else {
+    FileName = (CHAR16 *)PcdGetPtr(PcdCoDRelocationFileName);
+  }
 
   PrivateData = PEI_FAT_PRIVATE_DATA_FROM_THIS (This);
 
@@ -370,7 +387,7 @@ GetNumberRecoveryCapsules (
   //
   RecoveryCapsuleCount = 0;
   for (Index = 0; Index < PrivateData->VolumeCount; Index++) {
-    Status = FindRecoveryFile (PrivateData, Index, (CHAR16 *)PcdGetPtr(PcdRecoveryFileName), &Handle);
+    Status = FindRecoveryFile (PrivateData, Index, FileName, &Handle);
     if (EFI_ERROR (Status)) {
       continue;
     }
@@ -430,11 +447,28 @@ GetRecoveryCapsuleInfo (
   UINTN                 RecoveryCapsuleCount;
   PEI_FILE_HANDLE       Handle;
   UINTN                 NumberRecoveryCapsules;
+  CHAR16                *FileName;
+  VOID                  *RecoveryModePpi;
 
   Status = GetNumberRecoveryCapsules (PeiServices, This, &NumberRecoveryCapsules);
 
   if (EFI_ERROR (Status)) {
     return Status;
+  }
+
+  //
+  // Check Capsule On Disk Relocation flag. If exists, load capsule & create Capsule Hob
+  //
+  Status = PeiServicesLocatePpi (
+             &gEfiPeiBootInRecoveryModePpiGuid,
+             0,
+             NULL,
+             &RecoveryModePpi
+             );
+  if (!EFI_ERROR(Status)) {
+    FileName = (CHAR16 *)PcdGetPtr(PcdRecoveryFileName);
+  } else {
+    FileName = (CHAR16 *)PcdGetPtr(PcdCoDRelocationFileName);
   }
 
   if (FeaturePcdGet (PcdFrameworkCompatibilitySupport)) {
@@ -452,7 +486,7 @@ GetRecoveryCapsuleInfo (
   //
   RecoveryCapsuleCount = 0;
   for (Index = 0; Index < PrivateData->VolumeCount; Index++) {
-    Status = FindRecoveryFile (PrivateData, Index, (CHAR16 *)PcdGetPtr(PcdRecoveryFileName), &Handle);
+    Status = FindRecoveryFile (PrivateData, Index, FileName, &Handle);
 
     if (EFI_ERROR (Status)) {
       continue;
@@ -554,6 +588,24 @@ LoadRecoveryCapsule (
   UINTN                 RecoveryCapsuleCount;
   PEI_FILE_HANDLE       Handle;
   UINTN                 NumberRecoveryCapsules;
+  CHAR16                *FileName;
+  VOID                  *RecoveryModePpi;
+
+  //
+  // Check Capsule On Disk Relocation flag. If exists, load capsule & create Capsule Hob
+  //
+  Status = PeiServicesLocatePpi (
+             &gEfiPeiBootInRecoveryModePpiGuid,
+             0,
+             NULL,
+             (VOID **)&RecoveryModePpi
+             );
+  if (!EFI_ERROR(Status)) {
+    FileName = (CHAR16 *)PcdGetPtr(PcdRecoveryFileName);
+  } else {
+    FileName = (CHAR16 *)PcdGetPtr(PcdCoDRelocationFileName);
+  }
+
 
   Status = GetNumberRecoveryCapsules (PeiServices, This, &NumberRecoveryCapsules);
 
@@ -576,7 +628,7 @@ LoadRecoveryCapsule (
   //
   RecoveryCapsuleCount = 0;
   for (Index = 0; Index < PrivateData->VolumeCount; Index++) {
-    Status = FindRecoveryFile (PrivateData, Index, (CHAR16 *)PcdGetPtr(PcdRecoveryFileName), &Handle);
+    Status = FindRecoveryFile (PrivateData, Index, FileName, &Handle);
     if (EFI_ERROR (Status)) {
       continue;
     }

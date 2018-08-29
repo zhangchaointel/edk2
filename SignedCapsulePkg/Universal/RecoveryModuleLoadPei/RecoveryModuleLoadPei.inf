@@ -54,6 +54,7 @@
   gEfiPeiRecoveryModulePpiGuid            ## PRODUCES
   gEfiPeiDeviceRecoveryModulePpiGuid      ## CONSUMES
   gEfiPeiReadOnlyVariable2PpiGuid         ## CONSUMES
+  gEfiPeiBootInRecoveryModePpiGuid        ## SOMETIMES_CONSUMES
 
 [Guids]
   gEfiFmpCapsuleGuid                      ## SOMETIMES_CONSUMES ## GUID

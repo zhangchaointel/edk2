@@ -112,7 +112,7 @@ ParseRecoveryDataFile (
 
 **/
 EFI_STATUS
-GetCapsuleOnDiskInfo (
+GetCapsuleOnDiskInfoVar (
   OUT UINT64 *CapsuleBufferSize
   )
 {
@@ -847,9 +847,27 @@ LoadRecoveryCapsule (
   UINTN                               CapsuleSize;
   EFI_GUID                            CapsuleType;
   VOID                                *CapsuleBuffer;
+  BOOLEAN                             IsRecoveryMode;
+  VOID                                *RecoveryModePpi;
   UINT64                              CodTotalSize;
 
   DEBUG((DEBUG_INFO | DEBUG_LOAD, "Recovery Entry\n"));
+
+  IsRecoveryMode  = TRUE;
+  CodTotalSize    = 0;
+
+  //
+  // Check Capsule On Disk Relocation flag. If exists, load capsule & create Capsule Hob
+  //
+  Status = PeiServicesLocatePpi (
+             &gEfiPeiBootInRecoveryModePpiGuid,
+             0,
+             NULL,
+             (VOID **)&RecoveryModePpi
+             );
+  if (EFI_ERROR(Status)) {
+    IsRecoveryMode = FALSE;
+  }
 
   for (Instance = 0; ; Instance++) {
     Status = PeiServicesLocatePpi (
@@ -873,13 +891,9 @@ LoadRecoveryCapsule (
       continue;
     }
 
-    //
-    // Check Capsule On Disk Relocation flag. If exists, load capsule & create Capsule Hob
-    //
-    CodTotalSize = 0;
-    Status = GetCapsuleOnDiskInfo(&CodTotalSize);
-    if (!EFI_ERROR(Status) && NumberRecoveryCapsules != 1) {
-      return EFI_NOT_FOUND;
+    if (!IsRecoveryMode && NumberRecoveryCapsules != 1) {
+      DEBUG((DEBUG_ERROR, "More than one Relocated Capsule file are found! %x\n", NumberRecoveryCapsules));
+      return EFI_INVALID_PARAMETER;
     }
 
     for (CapsuleInstance = 1; CapsuleInstance <= NumberRecoveryCapsules; CapsuleInstance++) {
@@ -896,17 +910,17 @@ LoadRecoveryCapsule (
         break;
       }
 
-      if (CodTotalSize != 0) {
+      if (IsRecoveryMode) {
+        //
+        // Recovery path. use Boot Service memory
+        //
+        CapsuleBuffer = AllocatePages (EFI_SIZE_TO_PAGES(CapsuleSize));
+      } else {
         //
         // Allocate the memory so that it gets preserved into DXE. 
         // Capsule is special because it may need to populate to system table
         //
         CapsuleBuffer = AllocateRuntimePages (EFI_SIZE_TO_PAGES (CapsuleSize));
-      } else {
-        //
-        // Recovery path. use boot service memory
-        //
-        CapsuleBuffer = AllocatePages (EFI_SIZE_TO_PAGES(CapsuleSize));
       }
 
       if (CapsuleBuffer == NULL) {
@@ -926,19 +940,24 @@ LoadRecoveryCapsule (
         break;
       }
 
-      if (CodTotalSize != 0) {
+      if (IsRecoveryMode) {
         //
-        // Split TempCapsule buffer into different capsule vehicla hobs.
-        //
-        Status = RetrieveRelocatedCapsule(CapsuleBuffer, CodTotalSize);
-      } else {
-        //
-        // good, load capsule buffer
+        // Recovery Mode, load recovery capsule buffer
         //
         Status = ProcessRecoveryCapsule (CapsuleBuffer, CapsuleSize);
+      } else {
+        //
+        // Capsule Update Mode, Split relocated Capsule buffer into different capsule vehical hobs.
+        //
+        Status = GetCapsuleOnDiskInfoVar(&CodTotalSize);
+        if (!EFI_ERROR(Status)) {
+          Status = RetrieveRelocatedCapsule(CapsuleBuffer, CodTotalSize);
+        }
+        break;
       }
-      return Status;
     }
+
+    return Status;
   }
 
   //

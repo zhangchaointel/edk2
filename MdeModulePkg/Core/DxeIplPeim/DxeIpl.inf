@@ -97,6 +97,7 @@
   ## UNDEFINED # HOB
   gEfiVectorHandoffInfoPpiGuid
   gEfiPeiMemoryDiscoveredPpiGuid    ## SOMETIMES_CONSUMES
+  gEfiPeiBootInCapsuleOnDiskModePpiGuid  ## SOMETIMES_CONSUMES
 
 [Guids]
   ## SOMETIMES_CONSUMES ## Variable:L"MemoryTypeInformation"

@@ -1460,7 +1460,6 @@ CoDRelocateCapsule(
     DEBUG ((DEBUG_INFO, "RelocateCapsule: GetAllCapsuleOnDisk Status - 0x%x\n", Status));
     return EFI_NOT_FOUND;
   }
-  DEBUG((DEBUG_INFO, "RelocateCapsule:1\n"));
 
   //
   // 2. Connect platform special dev path or Use EFI System Partition as relocation device
@@ -1513,20 +1512,17 @@ CoDRelocateCapsule(
       return EFI_NOT_FOUND;
     }
   } 
-  DEBUG((DEBUG_INFO, "RelocateCapsule:2\n"));
 
   Status = gBS->HandleProtocol(Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
   if (EFI_ERROR(Status) || BlockIo->Media->ReadOnly) {
     DEBUG((DEBUG_ERROR, "Fail to find Capsule on Disk relocation BlockIo device or device is ReadOnly!\n"));
     return Status;
   }
-  DEBUG((DEBUG_INFO, "RelocateCapsule:3\n"));
 
   Status = gBS->HandleProtocol(Handle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
   if (EFI_ERROR(Status)) {
     return Status;
   }
-  DEBUG((DEBUG_INFO, "RelocateCapsule:4\n"));
 
   //
   // Check if device used to relocate Capsule On Disk is big enough
@@ -1577,7 +1573,7 @@ CoDRelocateCapsule(
   Status = RootDir->Open(
                       RootDir,
                       &TempCodFile,
-                      L"TempCoD.tmp",
+                      (CHAR16 *)PcdGetPtr(PcdCoDRelocationFileName),
                       EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE,
                       0
                       );
@@ -1590,7 +1586,7 @@ CoDRelocateCapsule(
   Status = RootDir->Open(
                       RootDir,
                       &TempCodFile,
-                      L"TempCoD.tmp",
+                      (CHAR16 *)PcdGetPtr(PcdCoDRelocationFileName),
                       EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
                       0
                       );

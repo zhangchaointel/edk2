@@ -272,12 +272,31 @@ DxeLoadCore (
   EFI_PEI_S3_RESUME2_PPI                    *S3Resume;
   EFI_PEI_RECOVERY_MODULE_PPI               *PeiRecovery;
   EFI_MEMORY_TYPE_INFORMATION               MemoryData[EfiMaxMemoryType + 1];
+  VOID                                      *CapsuleOnDiskModePpi;
+  BOOLEAN                                   IsCapsuleOnDiskMode;
+
+  IsCapsuleOnDiskMode = FALSE;
 
   //
-  // if in S3 Resume, restore configure
+  // If in S3 Resume, restore configure
   //
   BootMode = GetBootModeHob ();
 
+  //
+  // If Capsule On Disk mode, call Recovery Image Load to retrieve relocated capsule file
+  //
+  if (BootMode == BOOT_ON_FLASH_UPDATE) {
+    Status = PeiServicesLocatePpi (
+               &gEfiPeiBootInCapsuleOnDiskModePpiGuid,
+               0,
+               NULL,
+               &CapsuleOnDiskModePpi
+               );
+    if (!EFI_ERROR(Status)) {
+      IsCapsuleOnDiskMode = TRUE;
+    }
+  }
+  DEBUG((DEBUG_ERROR, "zhangchao %x\n", IsCapsuleOnDiskMode));
   if (BootMode == BOOT_ON_S3_RESUME) {
     Status = PeiServicesLocatePpi (
                &gEfiPeiS3Resume2PpiGuid,
@@ -298,7 +317,7 @@ DxeLoadCore (
     
     Status = S3Resume->S3RestoreConfig2 (S3Resume);
     ASSERT_EFI_ERROR (Status);
-  } else if (BootMode == BOOT_IN_RECOVERY_MODE || BootMode == BOOT_ON_FLASH_UPDATE) {
+  } else if (BootMode == BOOT_IN_RECOVERY_MODE || IsCapsuleOnDiskMode) {
     REPORT_STATUS_CODE (EFI_PROGRESS_CODE, (EFI_SOFTWARE_PEI_MODULE | EFI_SW_PEI_PC_RECOVERY_BEGIN));
     Status = PeiServicesLocatePpi (
                &gEfiPeiRecoveryModulePpiGuid,

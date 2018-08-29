@@ -69,6 +69,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleStatusCodeResettingSystem         ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskSupport                     ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdCodRelocationDevPath                     ## SOMETIMES_CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCoDRelocationFileName                    ## CONSUMES
 
 [Protocols]
   gEsrtManagementProtocolGuid             ## CONSUMES

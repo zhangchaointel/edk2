@@ -1895,6 +1895,8 @@
   # @Prompt Recover file name in PEI phase
   gEfiMdeModulePkgTokenSpaceGuid.PcdRecoveryFileName|L"FVMAIN.FV"|VOID*|0x30001045
 
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCoDRelocationFileName|L"TempCod.tmp"|VOID*|0x30001048
+
   ## This PCD hold a list GUIDs for the ImageTypeId to indicate the
   #  FMP capsule is a system FMP.
   # @Prompt A list of system FMP ImageTypeId GUIDs

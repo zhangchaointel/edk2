@@ -65,6 +65,7 @@
   gEfiPeiVirtualBlockIoPpiGuid                  ## SOMETIMES_CONSUMES PPI_NOTIFY
   gEfiPeiVirtualBlockIo2PpiGuid                 ## SOMETIMES_CONSUMES PPI_NOTIFY
   gEfiPeiDeviceRecoveryModulePpiGuid            ## SOMETIMES_PRODUCES
+  gEfiPeiBootInRecoveryModePpiGuid              ## CONSUMES
 
 
 [FeaturePcd]
@@ -72,6 +73,7 @@
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdRecoveryFileName         ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCoDRelocationFileName    ## CONSUMES
 
 [Depex]
   gEfiPeiMemoryDiscoveredPpiGuid AND gEfiPeiBootInRecoveryModePpiGuid OR gEfiPeiBootInCapsuleOnDiskModePpiGuid
