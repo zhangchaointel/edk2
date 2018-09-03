@@ -190,7 +190,8 @@ RecordFmpCapsuleStatusVariable (
   IN EFI_STATUS                                    CapsuleStatus,
   IN UINTN                                         PayloadIndex,
   IN EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER  *ImageHeader,
-  IN EFI_DEVICE_PATH_PROTOCOL                      *FmpDevicePath OPTIONAL
+  IN EFI_DEVICE_PATH_PROTOCOL                      *FmpDevicePath, OPTIONAL
+  IN CHAR16                                        *CapFileName    OPTIONAL
   )
 {
   EFI_CAPSULE_RESULT_VARIABLE_HEADER  *CapsuleResultVariableHeader;
@@ -200,8 +201,11 @@ RecordFmpCapsuleStatusVariable (
   UINTN                               CapsuleResultVariableSize;
   CHAR16                              *DevicePathStr;
   UINTN                               DevicePathStrSize;
+  UINTN                               CapFileNameSize;
 
-  DevicePathStr = NULL;
+  DevicePathStr   = NULL;
+  CapFileNameSize = sizeof(CHAR16);
+
   if (FmpDevicePath != NULL) {
     DevicePathStr = ConvertDevicePathToText (FmpDevicePath, FALSE, FALSE);
   }
@@ -210,10 +214,16 @@ RecordFmpCapsuleStatusVariable (
   } else {
     DevicePathStrSize = sizeof(CHAR16);
   }
+
+  if (CapFileName != NULL) {
+    CapFileNameSize = StrSize(CapFileName);
+  }
+
   //
   // Allocate zero CHAR16 for CapsuleFileName.
   //
-  CapsuleResultVariableSize = sizeof(EFI_CAPSULE_RESULT_VARIABLE_HEADER) + sizeof(EFI_CAPSULE_RESULT_VARIABLE_FMP) + sizeof(CHAR16) + DevicePathStrSize;
+  CapsuleResultVariableSize = sizeof(EFI_CAPSULE_RESULT_VARIABLE_HEADER) + sizeof(EFI_CAPSULE_RESULT_VARIABLE_FMP) + CapFileNameSize + DevicePathStrSize;
+
   CapsuleResultVariable     = AllocateZeroPool (CapsuleResultVariableSize);
   if (CapsuleResultVariable == NULL) {
     return EFI_OUT_OF_RESOURCES;
@@ -231,8 +241,13 @@ RecordFmpCapsuleStatusVariable (
   CapsuleResultVariableFmp->PayloadIndex = (UINT8)PayloadIndex;
   CapsuleResultVariableFmp->UpdateImageIndex = ImageHeader->UpdateImageIndex;
   CopyGuid (&CapsuleResultVariableFmp->UpdateImageTypeId, &ImageHeader->UpdateImageTypeId);
+
+  if (CapFileName != NULL) {
+    CopyMem((UINT8 *)CapsuleResultVariableFmp + sizeof(EFI_CAPSULE_RESULT_VARIABLE_FMP), CapFileName, DevicePathStrSize);
+  }
+
   if (DevicePathStr != NULL) {
-    CopyMem ((UINT8 *)CapsuleResultVariableFmp + sizeof(EFI_CAPSULE_RESULT_VARIABLE_FMP) + sizeof(CHAR16), DevicePathStr, DevicePathStrSize);
+    CopyMem ((UINT8 *)CapsuleResultVariableFmp + sizeof(EFI_CAPSULE_RESULT_VARIABLE_FMP) + CapFileNameSize, DevicePathStr, DevicePathStrSize);
     FreePool (DevicePathStr);
     DevicePathStr = NULL;
   }

@@ -296,7 +296,7 @@ DxeLoadCore (
       IsCapsuleOnDiskMode = TRUE;
     }
   }
-  DEBUG((DEBUG_ERROR, "zhangchao %x\n", IsCapsuleOnDiskMode));
+
   if (BootMode == BOOT_ON_S3_RESUME) {
     Status = PeiServicesLocatePpi (
                &gEfiPeiS3Resume2PpiGuid,

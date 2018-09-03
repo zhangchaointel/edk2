@@ -35,6 +35,11 @@ typedef struct {
 //
 #define COD_RELOCATION_INFO_VAR_NAME   L"CodRelocationInfo"
 
+typedef struct {
+  UINT64 TotalImageSize;
+  UINT64 TotalImageNameSize;
+} CAP_RELOCATION_INFO;
+
 /**
   The firmware checks whether the capsule image is supported 
   by the CapsuleGuid in CapsuleHeader or if there is other specific information in 
@@ -70,6 +75,26 @@ EFI_STATUS
 EFIAPI
 ProcessCapsuleImage (
   IN EFI_CAPSULE_HEADER *CapsuleHeader
+  );
+
+/**
+  The firmware-specific implementation processes the capsule image
+  if it recognized the format of this capsule image.
+
+  Caution: This function may receive untrusted input.
+
+  @param  CapsuleHeader    Pointer to the UEFI capsule image to be processed. 
+  @param  CapFileName    Name of the the UEFI capsule image to be processed. Only used when Capsule from File 
+
+  @retval EFI_SUCESS       Capsule Image processed successfully. 
+  @retval EFI_UNSUPPORTED  Capsule image is not supported by the firmware.
+
+**/
+EFI_STATUS
+EFIAPI
+ProcessCapsuleImageEx (
+  IN EFI_CAPSULE_HEADER *CapsuleHeader,
+  IN CHAR16             *CapFileName
   );
 
 /**
@@ -142,7 +167,7 @@ CoDClearCapsuleOnDiskFlag(
 EFI_STATUS
 EFIAPI
 CoDCheckCapsuleRelocationInfo(
-  OUT UINT64 *RelocTotalSize
+  OUT CAP_RELOCATION_INFO *CapsuleRelocInfo
   );
 
 /**

@@ -94,7 +94,8 @@ RecordFmpCapsuleStatusVariable (
   IN EFI_STATUS                                    CapsuleStatus,
   IN UINTN                                         PayloadIndex,
   IN EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER  *ImageHeader,
-  IN EFI_DEVICE_PATH_PROTOCOL                      *FmpDevicePath OPTIONAL
+  IN EFI_DEVICE_PATH_PROTOCOL                      *FmpDevicePath, OPTIONAL
+  IN CHAR16                                        *CapFileName    OPTIONAL
   );
 
 /**
@@ -951,7 +952,8 @@ RecordFmpCapsuleStatus (
   IN EFI_CAPSULE_HEADER                            *CapsuleHeader,
   IN EFI_STATUS                                    CapsuleStatus,
   IN UINTN                                         PayloadIndex,
-  IN EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER  *ImageHeader
+  IN EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER  *ImageHeader,
+  IN CHAR16                                        *CapFileName   OPTIONAL
   )
 {
   EFI_STATUS                                    Status;
@@ -975,7 +977,8 @@ RecordFmpCapsuleStatus (
     CapsuleStatus,
     PayloadIndex,
     ImageHeader,
-    FmpDevicePath
+    FmpDevicePath,
+    CapFileName
     );
 
   //
@@ -1029,7 +1032,8 @@ RecordFmpCapsuleStatus (
 **/
 EFI_STATUS
 ProcessFmpCapsuleImage (
-  IN EFI_CAPSULE_HEADER  *CapsuleHeader
+  IN EFI_CAPSULE_HEADER  *CapsuleHeader,
+  IN CHAR16              *CapFileName    OPTIONAL
   )
 {
   EFI_STATUS                                    Status;
@@ -1047,11 +1051,12 @@ ProcessFmpCapsuleImage (
   BOOLEAN                                       Abort;
 
   if (!IsFmpCapsuleGuid(&CapsuleHeader->CapsuleGuid)) {
-    return ProcessFmpCapsuleImage ((EFI_CAPSULE_HEADER *)((UINTN)CapsuleHeader + CapsuleHeader->HeaderSize));
+    return ProcessFmpCapsuleImage ((EFI_CAPSULE_HEADER *)((UINTN)CapsuleHeader + CapsuleHeader->HeaderSize), CapFileName);
   }
 
-  NotReady = FALSE;
-  Abort = FALSE;
+  NotReady    = FALSE;
+  Abort       = FALSE;
+  CapFileName = NULL;
 
   DumpFmpCapsule(CapsuleHeader);
 
@@ -1126,7 +1131,8 @@ ProcessFmpCapsuleImage (
         CapsuleHeader,
         EFI_NOT_READY,
         Index - FmpCapsuleHeader->EmbeddedDriverCount,
-        ImageHeader
+        ImageHeader,
+        CapFileName
         );
       continue;
     }
@@ -1138,7 +1144,8 @@ ProcessFmpCapsuleImage (
           CapsuleHeader,
           EFI_ABORTED,
           Index - FmpCapsuleHeader->EmbeddedDriverCount,
-          ImageHeader
+          ImageHeader,
+          CapFileName
           );
         continue;
       }
@@ -1157,7 +1164,8 @@ ProcessFmpCapsuleImage (
         CapsuleHeader,
         Status,
         Index - FmpCapsuleHeader->EmbeddedDriverCount,
-        ImageHeader
+        ImageHeader,
+        CapFileName
         );
     }
     if (HandleBuffer != NULL) {
@@ -1322,21 +1330,23 @@ SupportCapsuleImage (
 }
 
 /**
-  The firmware implements to process the capsule image.
+  The firmware-specific implementation processes the capsule image
+  if it recognized the format of this capsule image.
 
   Caution: This function may receive untrusted input.
 
-  @param[in]  CapsuleHeader         Points to a capsule header.
+  @param  CapsuleHeader    Pointer to the UEFI capsule image to be processed.
+  @param  CapFileName    Name of the the UEFI capsule image to be processed. Only used when Capsule from File
 
-  @retval EFI_SUCESS            Process Capsule Image successfully.
-  @retval EFI_UNSUPPORTED       Capsule image is not supported by the firmware.
-  @retval EFI_VOLUME_CORRUPTED  FV volume in the capsule is corrupted.
-  @retval EFI_OUT_OF_RESOURCES  Not enough memory.
+  @retval EFI_SUCESS       Capsule Image processed successfully.
+  @retval EFI_UNSUPPORTED  Capsule image is not supported by the firmware.
+
 **/
 EFI_STATUS
 EFIAPI
-ProcessCapsuleImage (
-  IN EFI_CAPSULE_HEADER  *CapsuleHeader
+ProcessCapsuleImageEx (
+  IN EFI_CAPSULE_HEADER  *CapsuleHeader,
+  IN CHAR16              *CapFileName
   )
 {
   EFI_STATUS                   Status;
@@ -1373,7 +1383,7 @@ ProcessCapsuleImage (
     // Press EFI FMP Capsule
     //
     DEBUG((DEBUG_INFO, "ProcessFmpCapsuleImage ...\n"));
-    Status = ProcessFmpCapsuleImage(CapsuleHeader);
+    Status = ProcessFmpCapsuleImage(CapsuleHeader, CapFileName);
     DEBUG((DEBUG_INFO, "ProcessFmpCapsuleImage - %r\n", Status));
 
     return Status;
@@ -1381,6 +1391,28 @@ ProcessCapsuleImage (
 
   return EFI_UNSUPPORTED;
 }
+
+/**
+  The firmware-specific implementation processes the capsule image
+  if it recognized the format of this capsule image.
+
+  Caution: This function may receive untrusted input.
+
+  @param  CapsuleHeader    Pointer to the UEFI capsule image to be processed.
+   
+  @retval EFI_SUCESS       Capsule Image processed successfully.
+  @retval EFI_UNSUPPORTED  Capsule image is not supported by the firmware.
+
+**/
+EFI_STATUS
+EFIAPI
+ProcessCapsuleImage (
+  IN EFI_CAPSULE_HEADER *CapsuleHeader
+  )
+{
+  return ProcessCapsuleImageEx(CapsuleHeader, NULL);
+}
+
 
 /**
   Callback function executed when the EndOfDxe event group is signaled.

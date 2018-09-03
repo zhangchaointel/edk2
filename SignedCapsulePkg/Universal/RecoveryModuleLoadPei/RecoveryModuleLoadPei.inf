@@ -59,7 +59,7 @@
 [Guids]
   gEfiFmpCapsuleGuid                      ## SOMETIMES_CONSUMES ## GUID
   gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable L"CodRelocationInfo"
-  
+  gEdkiiCapsuleOnDiskNameGuid             ## SOMTEIMES_CONSUMES ## HOB
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdSystemFmpCapsuleImageTypeIdGuid  ## CONSUMES

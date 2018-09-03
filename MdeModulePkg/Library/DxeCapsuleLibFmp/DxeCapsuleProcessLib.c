@@ -97,6 +97,7 @@ extern BOOLEAN                   mDxeCapsuleLibEndOfDxe;
 BOOLEAN                          mNeedReset;
 
 VOID                        **mCapsulePtr;
+CHAR16                      **mCapsuleNamePtr;
 EFI_STATUS                  *mCapsuleStatusArray;
 UINTN                       mCapsuleTotalNumber;
 
@@ -139,11 +140,23 @@ InitCapsulePtr (
     mCapsuleTotalNumber = 0;
     return EFI_OUT_OF_RESOURCES;
   }
+
+  mCapsuleNamePtr   = (CHAR16 **) AllocateZeroPool (sizeof (CHAR16 *) * mCapsuleTotalNumber);
+  if (mCapsuleNamePtr == NULL) {
+    DEBUG ((DEBUG_ERROR, "Allocate mCapsulePtr fail!\n"));
+    FreePool (mCapsulePtr);
+    mCapsulePtr         = NULL;
+    mCapsuleTotalNumber = 0;
+    return EFI_OUT_OF_RESOURCES;
+  }
+
   mCapsuleStatusArray = (EFI_STATUS *) AllocateZeroPool (sizeof (EFI_STATUS) * mCapsuleTotalNumber);
   if (mCapsuleStatusArray == NULL) {
     DEBUG ((DEBUG_ERROR, "Allocate mCapsuleStatusArray fail!\n"));
     FreePool (mCapsulePtr);
-    mCapsulePtr = NULL;
+    FreePool (mCapsuleNamePtr);
+    mCapsulePtr         = NULL;
+    mCapsuleNamePtr     = NULL;
     mCapsuleTotalNumber = 0;
     return EFI_OUT_OF_RESOURCES;
   }
@@ -156,6 +169,16 @@ InitCapsulePtr (
   Index = 0;
   while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
     mCapsulePtr [Index++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
+    HobPointer.Raw = GET_NEXT_HOB (HobPointer);
+  }
+
+  //
+  // Find Capsule On Disk Names
+  //
+  HobPointer.Raw = GetHobList ();
+  Index = 0;
+  while ((HobPointer.Raw = GetNextGuidHob (&gEdkiiCapsuleOnDiskNameGuid, HobPointer.Raw)) != NULL) {
+    mCapsuleNamePtr [Index++] = GET_GUID_HOB_DATA (HobPointer.Guid);
     HobPointer.Raw = GET_NEXT_HOB (HobPointer);
   }
 
@@ -324,6 +347,9 @@ ProcessTheseCapsules (
   BOOLEAN                     DisplayCapsuleExist;
   ESRT_MANAGEMENT_PROTOCOL    *EsrtManagement;
   UINT16                      EmbeddedDriverCount;
+  CHAR16                      *CapFileName;
+
+  CapFileName = NULL;
 
   REPORT_STATUS_CODE(EFI_PROGRESS_CODE, (EFI_SOFTWARE | PcdGet32(PcdStatusCodeSubClassCapsule) | PcdGet32(PcdCapsuleStatusCodeProcessCapsulesBegin)));
 
@@ -408,7 +434,7 @@ ProcessTheseCapsules (
 
       if ((!FirstRound) || (EmbeddedDriverCount == 0)) {
         DEBUG((DEBUG_INFO, "ProcessCapsuleImage - 0x%x\n", CapsuleHeader));
-        Status = ProcessCapsuleImage (CapsuleHeader);
+        Status = ProcessCapsuleImageEx (CapsuleHeader, mCapsuleNamePtr[Index]);
         mCapsuleStatusArray [Index] = Status;
         DEBUG((DEBUG_INFO, "ProcessCapsuleImage - %r\n", Status));
 

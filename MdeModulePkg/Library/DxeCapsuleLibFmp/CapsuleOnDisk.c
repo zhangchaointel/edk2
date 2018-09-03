@@ -1152,24 +1152,23 @@ CoDClearCapsuleOnDiskFlag(
 EFI_STATUS
 EFIAPI
 CoDCheckCapsuleRelocationInfo(
-  OUT UINT64 *RelocTotalSize
+  OUT CAP_RELOCATION_INFO *CapsuleRelocInfo
   )
 {
   EFI_STATUS  Status;
   UINTN       DataSize;
 
-  DataSize        = sizeof(UINT64);
-  *RelocTotalSize = 0;
+  DataSize = sizeof(CAP_RELOCATION_INFO);
 
   Status= gRT->GetVariable (
                  COD_RELOCATION_INFO_VAR_NAME,
                  &gEfiCapsuleVendorGuid,
                  NULL,
                  &DataSize,
-                 RelocTotalSize
+                 CapsuleRelocInfo
                  );
 
-  if (DataSize != sizeof(UINT64)) {
+  if (DataSize != sizeof(CAP_RELOCATION_INFO)) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -1198,215 +1197,6 @@ CoDClearCapsuleRelocationInfo(
 }
 
 /**
-  The function is called by Get Relocate Capsule on Disk from EFI system partition to a platform-specific
-  NV storage device producing BlockIo protocol.  Relocation device path is identified by PcdCodRelocationDevPath.
-  The connection logic in this function assumes it is a full device path.
-
-  Caution:
-    Retrieve relocated capsule is done by TCB. Therefore, the relocation device connection happens within TCB.
-    TCB must be immutable and attack surface must be small. Partition and FAT driver are not included in TCB.
-    Platform should configure FULL physical device path without logic Partition device path node.
-    A example is 
-      PciRoot(0x0) \ Pci(0x1D,0x0) \ USB(0x0,0x0) \ USB(0x3, 0x0)
-
-  @retval TRUE   All capsule images are processed.
-
-**/
-EFI_STATUS
-EFIAPI
-CoDRetrieveRelocatedCapsule (
-  IN  UINTN                MaxRetry,
-  OUT EFI_PHYSICAL_ADDRESS **CapsuleBufPtr,
-  OUT UINTN                *CapsuleNum
-  )
-{
-  EFI_STATUS               Status;
-  UINTN                    Index;
-  UINTN                    VarSize;
-  EFI_HANDLE               Handle;
-  EFI_DISK_IO_PROTOCOL     *DiskIo;
-  EFI_BLOCK_IO_PROTOCOL    *BlockIo;
-  UINT64                   CapsuleTotalSize;
-  UINT8                    *CapsuleDataBuf;
-  UINT8                    *CapsuleDataBufEnd;
-  UINT8                    *CapsulePtr;
-  EFI_PHYSICAL_ADDRESS     *TempCapsuleBufPtr;
-  UINTN                    TempCapsuleNum;
-  UINTN                    TempCapsuleSize;
-  EFI_DEVICE_PATH_PROTOCOL *CurFullPath;
-
-  DEBUG ((DEBUG_INFO, "CapsuleOnDisk RetrieveRelocatedCapsule Enter\n"));
-
-  TempCapsuleBufPtr = NULL;
-  CapsuleDataBuf    = NULL;
-  *CapsuleBufPtr    = NULL;
-  *CapsuleNum       = 0;
-
-  //
-  // 1. Get Capsule On Disk Size from NV Storage
-  //
-  VarSize = sizeof (UINT64);
-  Status  = gRT->GetVariable(
-                   COD_RELOCATION_INFO_VAR_NAME, 
-                   &gEfiCapsuleVendorGuid,
-                   NULL,
-                   &VarSize,
-                   &CapsuleTotalSize
-                   );
-  if (EFI_ERROR(Status) || VarSize != sizeof (UINT64)) {
-    return EFI_NOT_FOUND;
-  }
-
-  //
-  // 2. Connect relocation device
-  //     TCB assums relocation Device to be a low lever block IO device. Connection
-  //     strictly follows full device path to make sure all behaviors are expected.
-  //     Platform must also ensure no option rom is needed in such device connection
-  //
-  CurFullPath = (EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath);
-  Status = EfiBootManagerConnectDevicePath (CurFullPath, &Handle);
-
-  //
-  // Loop to wait for relocation device to get enumerated
-  //
-  while (EFI_ERROR(Status) && MaxRetry > 0) {
-    Status = EfiBootManagerConnectDevicePath(CurFullPath, &Handle);
-
-    //
-    // Stall 100ms if connection failed to ensure USB stack is ready.
-    //
-    gBS->Stall(100000);
-    MaxRetry --;
-  }
-
-  if (EFI_ERROR(Status)) {
-    DEBUG((DEBUG_ERROR, "RetrieveRelocatedCapsule: Fail to connect relocation device! Status = %x\n", Status));
-    return Status;
-  }
-
-  Status = gBS->HandleProtocol(Handle, &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo);
-  if (EFI_ERROR(Status)) {
-    DEBUG((DEBUG_ERROR, "RetrieveRelocatedCapsule: Fail to locate BlockIo!\n"));
-    return Status;
-  }
-
-  Status = gBS->HandleProtocol(Handle, &gEfiDiskIoProtocolGuid, (VOID **)&DiskIo);
-  if (EFI_ERROR(Status)) {
-    return Status;
-  }
-
-  //
-  // 4. Read all relocated capsule on disk into memory
-  //
-  CapsuleDataBuf = AllocatePool((UINTN)CapsuleTotalSize);
-  if (CapsuleDataBuf == NULL) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  //
-  // Overflow check
-  //
-  if (MAX_ADDRESS - (PHYSICAL_ADDRESS)CapsuleDataBuf <= CapsuleTotalSize) {
-    Status = EFI_INVALID_PARAMETER;
-    goto EXIT;
-  }
-  CapsuleDataBufEnd = CapsuleDataBuf + CapsuleTotalSize; 
-
-  Status = DiskIo->ReadDisk(DiskIo, BlockIo->Media->MediaId, 0, (UINTN)CapsuleTotalSize, CapsuleDataBuf);
-  if (EFI_ERROR(Status)) {
-    DEBUG((DEBUG_ERROR, "RetrieveRelocatedCapsule  DiskRead Error! Status = %x\n", Status));
-    goto EXIT;
-  }
-
-  //
-  // 5. Load each Capsule image from relocation device to memory
-  //
-  for (Index = 0, CapsulePtr = CapsuleDataBuf; CapsulePtr < CapsuleDataBufEnd; Index++) {
-    //
-    // More integrity check against Capsule Header to ensure no data corruption in NV Var & Relocation storage
-    //
-    if ((CapsuleDataBufEnd - CapsulePtr) < sizeof(EFI_CAPSULE_HEADER) ||
-        (MAX_ADDRESS - (PHYSICAL_ADDRESS)CapsulePtr) < ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize) {
-      Status = EFI_INVALID_PARAMETER;
-      goto EXIT;
-    }
-
-    CapsulePtr += ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
-  }
-
-  if (CapsulePtr > CapsuleDataBufEnd) {
-    Status = EFI_INVALID_PARAMETER;
-    goto EXIT;
-  }
-
-  TempCapsuleBufPtr = AllocateZeroPool(sizeof(EFI_PHYSICAL_ADDRESS) * Index);
-  if (TempCapsuleBufPtr == NULL) {
-    Status = EFI_OUT_OF_RESOURCES;
-    goto EXIT;
-  }
-  TempCapsuleNum = Index;
-
-  //
-  // Re-iterate the capsule buffer to get each relocated capsule starting address
-  //
-  for (Index = 0, CapsulePtr = CapsuleDataBuf; CapsulePtr < CapsuleDataBufEnd && Index < TempCapsuleNum; Index++) {
-    //
-    // Make sure relocated capsules are aligned
-    //
-    TempCapsuleSize          = ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
-    TempCapsuleBufPtr[Index] = (EFI_PHYSICAL_ADDRESS)AllocatePages(EFI_SIZE_TO_PAGES(TempCapsuleSize));
-    if (TempCapsuleBufPtr[Index] == (EFI_PHYSICAL_ADDRESS)NULL) {
-      Status = EFI_OUT_OF_RESOURCES;
-      goto EXIT;
-    }
-    CopyMem((VOID *)TempCapsuleBufPtr[Index], CapsulePtr, TempCapsuleSize);
-    CapsulePtr += TempCapsuleSize;
-  }
-
-  *CapsuleBufPtr = TempCapsuleBufPtr;
-  *CapsuleNum    = Index;
-
-  DEBUG_CODE (
-    CHAR16 *RelocateDevPathStr;
-    UINTN  CapIndex;
-
-    RelocateDevPathStr = ConvertDevicePathToText(CurFullPath, TRUE, TRUE);
-
-    if (RelocateDevPathStr != NULL){
-      DEBUG((DEBUG_INFO, "%d Capsule found in Relocated device\n", *CapsuleNum));
-      DEBUG((DEBUG_INFO, "%s\n", RelocateDevPathStr));
-      FreePool(RelocateDevPathStr);
-    } else {
-      DEBUG((DEBUG_INFO, "%d Capsule found in Relocated device\n", *CapsuleNum));
-    }
-
-    for (CapIndex = 0; CapIndex < *CapsuleNum; CapIndex++) {
-      DEBUG((DEBUG_INFO, "%d Capsule image size 0x%x loaded in 0x%x\n", 
-             CapIndex, ((EFI_CAPSULE_HEADER *)TempCapsuleBufPtr[CapIndex])->CapsuleImageSize, TempCapsuleBufPtr[CapIndex]));
-    }
-  );
-
-EXIT:
-  if (EFI_ERROR(Status)) {
-    if (TempCapsuleBufPtr != NULL) {
-      for (Index = 0; Index < TempCapsuleNum; Index++) {
-        if (TempCapsuleBufPtr[Index] != (EFI_PHYSICAL_ADDRESS)NULL) {
-          FreePool((VOID *)TempCapsuleBufPtr[Index]);
-        }
-      }
-
-      FreePool(TempCapsuleBufPtr);
-    }
-  }
-
-  if (CapsuleDataBuf != NULL) {
-    FreePool(CapsuleDataBuf);
-  }
-
-  return Status;
-}
-
-/**
   Relocate Capsule on Disk from EFI system partition to a platform-specific NV storage device
   with BlockIo protocol.  Relocation device path, identified by PcdCodRelocationDevPath, must
   be a full device path.
@@ -1430,7 +1220,7 @@ CoDRelocateCapsule(
   UINTN                           CapsuleOnDiskNum;
   UINTN                           Index;
   UINTN                           DataSize;
-  UINT64                          CapsuleTotalSize;
+  CAP_RELOCATION_INFO             RelocationInfo;
   IMAGE_INFO                      *CapsuleOnDiskBuf;
   EFI_HANDLE                      Handle;
   EFI_HANDLE                      TempHandle;
@@ -1438,6 +1228,7 @@ CoDRelocateCapsule(
   UINTN                           NumberOfHandles;
   EFI_BLOCK_IO_PROTOCOL           *BlockIo;
   UINT8                           *CapsuleDataBuf;
+  UINT8                           *CapsuleNameBuf;
   UINT8                           *CapsulePtr;
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
   UINTN                           DefRelocationDevPath;
@@ -1445,10 +1236,13 @@ CoDRelocateCapsule(
   EFI_FILE_HANDLE                 TempCodFile;
   EFI_DEVICE_PATH                 *TempDevicePath;
 
-  RootDir         = NULL;
-  TempCodFile     = NULL;
-  HandleBuffer    = NULL;
-  NumberOfHandles = 0;
+  RootDir          = NULL;
+  TempCodFile      = NULL;
+  HandleBuffer     = NULL;
+  CapsuleDataBuf   = NULL;
+  CapsuleNameBuf   = NULL;
+  CapsuleOnDiskBuf = NULL;
+  NumberOfHandles  = 0;
 
   DEBUG ((DEBUG_INFO, "CapsuleOnDisk RelocateCapsule Enter\n"));
 
@@ -1463,14 +1257,13 @@ CoDRelocateCapsule(
 
   //
   // 2. Connect platform special dev path or Use EFI System Partition as relocation device
-
   //
   DefRelocationDevPath = 0xFFFFFFFF;
   if (0 != CompareMem(PcdGetPtr(PcdCodRelocationDevPath), &DefRelocationDevPath, sizeof(UINT32))) {
     Status = EfiBootManagerConnectDevicePath ((EFI_DEVICE_PATH *)PcdGetPtr(PcdCodRelocationDevPath), &TempHandle);
     if (EFI_ERROR(Status)) {
       DEBUG ((DEBUG_INFO, "RelocateCapsule: EfiBootManagerConnectDevicePath Status - 0x%x\n", Status));
-      return Status;
+      goto EXIT;
     }
 
     //
@@ -1486,7 +1279,7 @@ CoDRelocateCapsule(
                     );
     if (EFI_ERROR(Status)) {
       DEBUG ((DEBUG_INFO, "RelocateCapsule: LocateHandleBuffer Status - 0x%x\n", Status));
-      return Status;
+      goto EXIT;
     }
 
     //
@@ -1509,7 +1302,7 @@ CoDRelocateCapsule(
 
     if (Index == NumberOfHandles) {
       DEBUG ((DEBUG_INFO, "RelocateCapsule: No simple file system protocol found.\n"));
-      return EFI_NOT_FOUND;
+      Status = EFI_NOT_FOUND;
     }
   } 
 
@@ -1527,38 +1320,61 @@ CoDRelocateCapsule(
   //
   // Check if device used to relocate Capsule On Disk is big enough
   //
-  for (Index = 0, CapsuleTotalSize = 0; Index < CapsuleOnDiskNum; Index++) {
+  RelocationInfo.TotalImageSize     = 0;
+  RelocationInfo.TotalImageNameSize = 0;
+  for (Index = 0; Index < CapsuleOnDiskNum; Index++) {
     //
     // Overflow check
     //
-    if (MAX_ADDRESS - CapsuleTotalSize <= CapsuleOnDiskBuf[Index].FileInfo->FileSize) {
+    if (MAX_ADDRESS - RelocationInfo.TotalImageSize <= CapsuleOnDiskBuf[Index].FileInfo->FileSize) {
       return EFI_INVALID_PARAMETER;
     }
-    CapsuleTotalSize += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
+
+    if (MAX_ADDRESS - RelocationInfo.TotalImageNameSize <= StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName)) {
+      return EFI_INVALID_PARAMETER;
+    }
+
+    RelocationInfo.TotalImageSize += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
+    RelocationInfo.TotalImageNameSize += StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName);
+    DEBUG((DEBUG_INFO, "RelocateCapsule: %x Size %x\n",CapsuleOnDiskBuf[Index].FileInfo->FileName, RelocationInfo.TotalImageSize));
   }
 
-  DEBUG((DEBUG_INFO, "RelocateCapsule: CapsuleTotalSize %x\n", CapsuleTotalSize));
+  DEBUG((DEBUG_INFO, "RelocateCapsule: TotalImageSize %x\n", RelocationInfo.TotalImageSize));
+  DEBUG((DEBUG_INFO, "RelocateCapsule: TotalImageNameSize %x\n", RelocationInfo.TotalImageNameSize));
+  
   //
   // Check if CapsuleTotalSize. There could be reminder, so use LastBlock number directly
   //
-  if (DivU64x32(CapsuleTotalSize, BlockIo->Media->BlockSize) >  BlockIo->Media->LastBlock) {
+  if (DivU64x32(RelocationInfo.TotalImageSize + RelocationInfo.TotalImageNameSize, BlockIo->Media->BlockSize) >  BlockIo->Media->LastBlock) {
     DEBUG((DEBUG_ERROR, "RelocateCapsule: Relocation device isn't big enough to hold all Capsule on Disk!\n"));
-    DEBUG((DEBUG_ERROR, "CapsuleTotalSize = %x\n", CapsuleTotalSize));
+    DEBUG((DEBUG_ERROR, "TotalImageSize = %x\n", RelocationInfo.TotalImageSize));
+    DEBUG((DEBUG_ERROR, "TotalImageNameSize = %x\n", RelocationInfo.TotalImageNameSize));
     DEBUG((DEBUG_ERROR, "RelocationDev BlockSize = %x LastBlock = %x\n", BlockIo->Media->BlockSize, BlockIo->Media->LastBlock));
-    return EFI_OUT_OF_RESOURCES;
+    Status = EFI_OUT_OF_RESOURCES;
+    goto EXIT;
   }
 
-  CapsuleDataBuf = AllocatePool((UINTN)CapsuleTotalSize);
+  CapsuleDataBuf = AllocatePool((UINTN)(RelocationInfo.TotalImageSize + RelocationInfo.TotalImageNameSize));
   if (CapsuleDataBuf == NULL) {
-    return EFI_OUT_OF_RESOURCES;
+    Status = EFI_OUT_OF_RESOURCES;
+    goto EXIT;
   }
+  CapsuleNameBuf = CapsuleDataBuf + RelocationInfo.TotalImageSize;
 
   //
-  // Try to line up all the Capsule on Disk and write to relocation disk at one time. It could save some time in disk write
+  // Line up all the Capsule on Disk and write to relocation disk at one time. It could save some time in disk write
   //
   for (Index = 0, CapsulePtr = CapsuleDataBuf; Index < CapsuleOnDiskNum; Index++) {
     CopyMem(CapsulePtr, CapsuleOnDiskBuf[Index].ImageAddress, CapsuleOnDiskBuf[Index].FileInfo->FileSize);
     CapsulePtr += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
+  }
+
+  //
+  // Line up all the Capsule file names.
+  //
+  for (Index = 0, CapsulePtr = CapsuleNameBuf; Index < CapsuleOnDiskNum; Index++) {
+    CopyMem(CapsulePtr, CapsuleOnDiskBuf[Index].FileInfo->FileName, StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName));
+    CapsulePtr += StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName);
   }
 
   //
@@ -1579,7 +1395,7 @@ CoDRelocateCapsule(
                       );
   if (!EFI_ERROR(Status)) {
     //
-    // Error handling code to prevent malicious code to hold this file to block capsule on disk 
+    // Error handling code to prevent malicious code to hold this file to block capsule on disk
     //
     TempCodFile->Delete(TempCodFile);
   }
@@ -1598,7 +1414,7 @@ CoDRelocateCapsule(
   //
   // Always write at the begining of TempCap file
   //
-  DataSize = (UINTN)CapsuleTotalSize;
+  DataSize = (UINTN)(RelocationInfo.TotalImageSize + RelocationInfo.TotalImageNameSize);
   Status = TempCodFile->Write(
                           TempCodFile,
                           &DataSize,
@@ -1609,39 +1425,47 @@ CoDRelocateCapsule(
     goto EXIT;
   }
 
-  if (DataSize != CapsuleTotalSize) {
+  if (DataSize != (UINTN)(RelocationInfo.TotalImageSize + RelocationInfo.TotalImageNameSize)) {
     Status = EFI_DEVICE_ERROR;
     goto EXIT;
   }
 
   //
-  // Save Total Capsule On Disk image Size to "CodRelocationInfo"
+  // Save Capsule On Disk relocation info to "CodRelocationInfo" Var
   // It is used in next reboot by TCB
   //
   Status = gRT->SetVariable(
                    COD_RELOCATION_INFO_VAR_NAME, 
                    &gEfiCapsuleVendorGuid, 
                    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
-                   sizeof (UINT64),
-                   &CapsuleTotalSize
+                   sizeof (CAP_RELOCATION_INFO),
+                   &RelocationInfo
                    );
 
 
 EXIT:
 
-  FreePool(CapsuleDataBuf);
-
-  //
-  // Free resources allocated by CodLibGetAllCapsuleOnDisk
-  //
-  for (Index = 0; Index < CapsuleOnDiskNum; Index++ ) {
-    FreePool(CapsuleOnDiskBuf[Index].ImageAddress);
-    FreePool(CapsuleOnDiskBuf[Index].FileInfo);
+  if (CapsuleDataBuf != NULL) {
+    FreePool(CapsuleDataBuf);
   }
-  FreePool(CapsuleOnDiskBuf);
+
+  if (CapsuleOnDiskBuf != NULL) {
+    //
+    // Free resources allocated by CodLibGetAllCapsuleOnDisk
+    //
+    for (Index = 0; Index < CapsuleOnDiskNum; Index++ ) {
+      FreePool(CapsuleOnDiskBuf[Index].ImageAddress);
+      FreePool(CapsuleOnDiskBuf[Index].FileInfo);
+    }
+    FreePool(CapsuleOnDiskBuf);
+  }
 
   if (TempCodFile != NULL) {
-    TempCodFile->Close (TempCodFile);
+    if (EFI_ERROR(Status)) {
+      TempCodFile->Delete (TempCodFile);
+    } else {
+      TempCodFile->Close (TempCodFile);
+    }
   }
 
   if (RootDir != NULL) {
