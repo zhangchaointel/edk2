@@ -178,8 +178,10 @@ InitCapsulePtr (
   HobPointer.Raw = GetHobList ();
   Index = 0;
   while ((HobPointer.Raw = GetNextGuidHob (&gEdkiiCapsuleOnDiskNameGuid, HobPointer.Raw)) != NULL) {
-    mCapsuleNamePtr [Index++] = GET_GUID_HOB_DATA (HobPointer.Guid);
+    mCapsuleNamePtr [Index] = GET_GUID_HOB_DATA (HobPointer.Guid);
+    DEBUG((DEBUG_INFO, "Capsule On Disk file name: %S\n", mCapsuleNamePtr [Index]));
     HobPointer.Raw = GET_NEXT_HOB (HobPointer);
+    Index++;
   }
 
   return EFI_SUCCESS;

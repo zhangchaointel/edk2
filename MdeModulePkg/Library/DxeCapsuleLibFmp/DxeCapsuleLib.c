@@ -1056,7 +1056,6 @@ ProcessFmpCapsuleImage (
 
   NotReady    = FALSE;
   Abort       = FALSE;
-  CapFileName = NULL;
 
   DumpFmpCapsule(CapsuleHeader);
 
@@ -1336,7 +1335,7 @@ SupportCapsuleImage (
   Caution: This function may receive untrusted input.
 
   @param  CapsuleHeader    Pointer to the UEFI capsule image to be processed.
-  @param  CapFileName    Name of the the UEFI capsule image to be processed. Only used when Capsule from File
+  @param  CapFileName      Name of the the UEFI capsule image to be processed. Only used when Capsule from File
 
   @retval EFI_SUCESS       Capsule Image processed successfully.
   @retval EFI_UNSUPPORTED  Capsule image is not supported by the firmware.
@@ -1346,7 +1345,7 @@ EFI_STATUS
 EFIAPI
 ProcessCapsuleImageEx (
   IN EFI_CAPSULE_HEADER  *CapsuleHeader,
-  IN CHAR16              *CapFileName
+  IN CHAR16              *CapFileName      OPTIONAL
   )
 {
   EFI_STATUS                   Status;

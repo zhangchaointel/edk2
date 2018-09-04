@@ -220,7 +220,7 @@ RecordFmpCapsuleStatusVariable (
   }
 
   //
-  // Allocate zero CHAR16 for CapsuleFileName.
+  // Allocate room for CapsuleFileName.
   //
   CapsuleResultVariableSize = sizeof(EFI_CAPSULE_RESULT_VARIABLE_HEADER) + sizeof(EFI_CAPSULE_RESULT_VARIABLE_FMP) + CapFileNameSize + DevicePathStrSize;
 
@@ -243,7 +243,7 @@ RecordFmpCapsuleStatusVariable (
   CopyGuid (&CapsuleResultVariableFmp->UpdateImageTypeId, &ImageHeader->UpdateImageTypeId);
 
   if (CapFileName != NULL) {
-    CopyMem((UINT8 *)CapsuleResultVariableFmp + sizeof(EFI_CAPSULE_RESULT_VARIABLE_FMP), CapFileName, DevicePathStrSize);
+    CopyMem((UINT8 *)CapsuleResultVariableFmp + sizeof(EFI_CAPSULE_RESULT_VARIABLE_FMP), CapFileName, CapFileNameSize);
   }
 
   if (DevicePathStr != NULL) {
