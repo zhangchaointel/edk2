@@ -422,6 +422,32 @@ InitCapsuleUpdateVariable (
 }
 
 /**
+  Initialize capsule relocation info variable.
+**/
+VOID
+InitCapsuleRelocationInf (
+  VOID
+  )
+{  
+  EFI_STATUS                   Status;
+  EDKII_VARIABLE_LOCK_PROTOCOL *VariableLock;
+
+  CoDClearCapsuleRelocationInfo();
+
+  //
+  // Lock Capsule On Disk relocation Info variable only when Capsule On Disk flag is enabled
+  //
+  if (!CoDCheckCapsuleOnDiskFlag()) {
+    Status = gBS->LocateProtocol (&gEdkiiVariableLockProtocolGuid, NULL, (VOID **) &VariableLock);
+    if (!EFI_ERROR (Status)) {
+      Status = VariableLock->RequestToLock (VariableLock, COD_RELOCATION_INFO_VAR_NAME, &gEfiCapsuleVendorGuid);
+      ASSERT_EFI_ERROR (Status);
+    }
+  }
+
+}
+
+/**
   Initialize capsule related variables.
 **/
 VOID
@@ -432,7 +458,8 @@ InitCapsuleVariable (
   InitCapsuleUpdateVariable();
   InitCapsuleMaxVariable();
   InitCapsuleLastVariable();
-  CoDClearCapsuleRelocationInfo();
+  InitCapsuleRelocationInf();
+
   //
   // No need to clear L"Capsule####", because OS/APP should refer L"CapsuleLast"
   // to check status and delete them.
