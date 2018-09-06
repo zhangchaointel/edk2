@@ -111,14 +111,15 @@ ParseRecoveryDataFile (
   @retval Others          Variable storing long mode buffer not found.
 
 **/
-EFI_STATUS
-GetCapsuleOnDiskInfoVar (
-  OUT CAP_RELOCATION_INFO *CapsuleRelocInfo
+BOOLEAN
+IsCapsuleOnDiskMode (
+  VOID
   )
 {
   EFI_STATUS                      Status;
   UINTN                           Size;
   EFI_PEI_READ_ONLY_VARIABLE2_PPI *PPIVariableServices;
+  BOOLEAN                         CodRelocInfo;   
 
   Status = PeiServicesLocatePpi (
              &gEfiPeiReadOnlyVariable2PpiGuid,
@@ -128,33 +129,29 @@ GetCapsuleOnDiskInfoVar (
              );
   ASSERT_EFI_ERROR (Status);
 
-  Size = sizeof (CAP_RELOCATION_INFO);
+  Size = sizeof (BOOLEAN);
   Status = PPIVariableServices->GetVariable (
                                   PPIVariableServices,
                                   COD_RELOCATION_INFO_VAR_NAME,
                                   &gEfiCapsuleVendorGuid,
                                   NULL,
                                   &Size,
-                                  CapsuleRelocInfo
+                                  &CodRelocInfo
                                   );
                    
-  if (EFI_ERROR (Status) || Size != sizeof(CAP_RELOCATION_INFO)) {
+  if (EFI_ERROR (Status) || Size != sizeof(BOOLEAN) || CodRelocInfo != TRUE) {
     DEBUG (( EFI_D_ERROR, "Error Get CodRelocationInfo variable %r!\n", Status));
+    return FALSE;
   }
 
-  if (Size != sizeof(CAP_RELOCATION_INFO)) {
-    Status = EFI_INVALID_PARAMETER;
-  }
-
-  return Status;
+  return TRUE;
 }
 
 EFI_STATUS
 EFIAPI
 RetrieveRelocatedCapsule (
   IN UINT8                *RelocCapsuleBuf,
-  IN UINTN                RelocCapsuleTotalSize,
-  IN CAP_RELOCATION_INFO  *CapsuleRelocInfo
+  IN UINTN                RelocCapsuleTotalSize
   )
 {
   EFI_STATUS               Status;
@@ -165,21 +162,37 @@ RetrieveRelocatedCapsule (
   UINT8                    *CapsuleNamePtr;
   UINT32                   CapsuleSize;
   UINT32                   CapsuleNameSize;
+  UINT64                   TotalImageSize;
+  UINT64                   TotalImageNameSize;
 
-  DEBUG ((DEBUG_INFO, "ProcessRelocatedCapsule CapsuleBuf %x TotalCapSize %x TotalNameSize %x\n", 
-                      RelocCapsuleBuf, CapsuleRelocInfo->TotalImageSize, CapsuleRelocInfo->TotalImageNameSize));
- //
-  // Overflow check
   //
-  if (MAX_ADDRESS - (UINTN)CapsuleRelocInfo->TotalImageNameSize < (UINTN)CapsuleRelocInfo->TotalImageSize ||
-      RelocCapsuleTotalSize != (UINTN)(CapsuleRelocInfo->TotalImageSize  + CapsuleRelocInfo->TotalImageNameSize) ||
-      (MAX_ADDRESS - (PHYSICAL_ADDRESS)RelocCapsuleBuf) <= (UINTN)CapsuleRelocInfo->TotalImageSize) {
+  // Temp file contains at least 1 capsule & 2 UINT64
+  //
+  if (RelocCapsuleTotalSize < sizeof(UINT64) * 2 + sizeof(EFI_CAPSULE_HEADER)) {
     return EFI_INVALID_PARAMETER;
   }
 
-  CapsuleDataBufEnd = RelocCapsuleBuf + CapsuleRelocInfo->TotalImageSize;
+  CopyMem(&TotalImageSize, RelocCapsuleBuf, sizeof(UINT64));
+  CopyMem(&TotalImageNameSize, RelocCapsuleBuf + sizeof(UINT64), sizeof(UINT64));
 
-  if ((MAX_ADDRESS - (PHYSICAL_ADDRESS)CapsuleDataBufEnd) <= (UINTN)CapsuleRelocInfo->TotalImageNameSize) {
+  DEBUG ((DEBUG_INFO, "ProcessRelocatedCapsule CapsuleBuf %x TotalCapSize %lx TotalNameSize %lx\n", 
+                      RelocCapsuleBuf, TotalImageSize, TotalImageNameSize));
+
+  RelocCapsuleBuf += sizeof(UINT64) * 2;
+
+  //
+  // Overflow check
+  //
+  if (MAX_ADDRESS - TotalImageNameSize <= sizeof(UINT64) * 2 ||
+      MAX_ADDRESS - (UINTN)TotalImageSize <= (UINTN)TotalImageNameSize + sizeof(UINT64) * 2 ||
+      RelocCapsuleTotalSize != (UINTN)(TotalImageSize  + TotalImageNameSize + sizeof(UINT64) * 2) ||
+      (MAX_ADDRESS - (PHYSICAL_ADDRESS)RelocCapsuleBuf) <= (UINTN)TotalImageSize) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  CapsuleDataBufEnd = RelocCapsuleBuf + TotalImageSize;
+
+  if ((MAX_ADDRESS - (PHYSICAL_ADDRESS)CapsuleDataBufEnd) <= (UINTN)TotalImageNameSize) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -190,18 +203,18 @@ RetrieveRelocatedCapsule (
   //
   CapsulePtr = RelocCapsuleBuf;
   if (((UINTN)CapsuleDataBufEnd & 0x01) != 0) {
-    CapsuleNamePtr = AllocatePages(EFI_SIZE_TO_PAGES((UINTN)CapsuleRelocInfo->TotalImageNameSize));
+    CapsuleNamePtr = AllocatePages(EFI_SIZE_TO_PAGES((UINTN)TotalImageNameSize));
     if (CapsuleNamePtr == NULL) {
       return EFI_OUT_OF_RESOURCES;
     }
-    CopyMem(CapsuleNamePtr, CapsuleDataBufEnd, (UINTN)CapsuleRelocInfo->TotalImageNameSize);
+    CopyMem(CapsuleNamePtr, CapsuleDataBufEnd, (UINTN)TotalImageNameSize);
   } else {
     CapsuleNamePtr  = CapsuleDataBufEnd;
   }
-  CapsuleNameBufEnd = CapsuleNamePtr + CapsuleRelocInfo->TotalImageNameSize;
+  CapsuleNameBufEnd = CapsuleNamePtr + TotalImageNameSize;
 
   while (CapsulePtr < CapsuleDataBufEnd && CapsuleNamePtr < CapsuleNameBufEnd) {
-    CapsuleNameSize = StrnSizeS((CONST CHAR16 *)CapsuleNamePtr, (UINTN)CapsuleRelocInfo->TotalImageNameSize);
+    CapsuleNameSize = StrnSizeS((CONST CHAR16 *)CapsuleNamePtr, (UINTN)TotalImageNameSize);
     if ((CapsuleDataBufEnd - CapsulePtr) < sizeof(EFI_CAPSULE_HEADER) ||
         (MAX_ADDRESS - (PHYSICAL_ADDRESS)CapsulePtr) < ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize ||
         CapsuleNameSize == 0) {
@@ -220,11 +233,11 @@ RetrieveRelocatedCapsule (
   // Re-iterate the capsule buffer to create Capsule hob & Capsule Name Str Hob for each Capsule saved in relocated capsule file
   //
   CapsulePtr     = RelocCapsuleBuf;
-  CapsuleNamePtr = CapsuleNameBufEnd - CapsuleRelocInfo->TotalImageNameSize;
+  CapsuleNamePtr = CapsuleNameBufEnd - (UINTN)TotalImageNameSize;
   Index          = 0;
   while (CapsulePtr < CapsuleDataBufEnd && CapsuleNamePtr < CapsuleNameBufEnd) {
 
-    CapsuleNameSize = StrnSizeS((CONST CHAR16 *)CapsuleNamePtr, (UINTN)CapsuleRelocInfo->TotalImageNameSize);
+    CapsuleNameSize = StrnSizeS((CONST CHAR16 *)CapsuleNamePtr, (UINTN)TotalImageNameSize);
     CapsuleSize     = ((EFI_CAPSULE_HEADER *)CapsulePtr)->CapsuleImageSize;
 
     BuildCvHob ((EFI_PHYSICAL_ADDRESS)(UINTN)CapsulePtr, CapsuleSize);
@@ -888,7 +901,6 @@ LoadRecoveryCapsule (
   VOID                                *CapsuleBuffer;
   BOOLEAN                             IsRecoveryMode;
   VOID                                *RecoveryModePpi;
-  CAP_RELOCATION_INFO                 CapsuleRelocInfo;
 
   DEBUG((DEBUG_INFO | DEBUG_LOAD, "Recovery Entry\n"));
 
@@ -987,10 +999,8 @@ LoadRecoveryCapsule (
         //
         // Capsule Update Mode, Split relocated Capsule buffer into different capsule vehical hobs.
         //
-        ZeroMem(&CapsuleRelocInfo, sizeof(CAP_RELOCATION_INFO));
-        Status = GetCapsuleOnDiskInfoVar(&CapsuleRelocInfo);
-        if (!EFI_ERROR(Status)) {
-          Status = RetrieveRelocatedCapsule(CapsuleBuffer, CapsuleSize, &CapsuleRelocInfo);
+        if (IsCapsuleOnDiskMode()) {
+          Status = RetrieveRelocatedCapsule(CapsuleBuffer, CapsuleSize);
         }
         break;
       }

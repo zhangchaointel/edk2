@@ -1152,13 +1152,13 @@ CoDClearCapsuleOnDiskFlag(
 EFI_STATUS
 EFIAPI
 CoDCheckCapsuleRelocationInfo(
-  OUT CAP_RELOCATION_INFO *CapsuleRelocInfo
+  OUT BOOLEAN *CapsuleRelocInfo
   )
 {
   EFI_STATUS  Status;
   UINTN       DataSize;
 
-  DataSize = sizeof(CAP_RELOCATION_INFO);
+  DataSize = sizeof(BOOLEAN);
 
   Status= gRT->GetVariable (
                  COD_RELOCATION_INFO_VAR_NAME,
@@ -1168,7 +1168,7 @@ CoDCheckCapsuleRelocationInfo(
                  CapsuleRelocInfo
                  );
 
-  if (DataSize != sizeof(CAP_RELOCATION_INFO)) {
+  if (DataSize != sizeof(BOOLEAN)) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -1220,7 +1220,8 @@ CoDRelocateCapsule(
   UINTN                           CapsuleOnDiskNum;
   UINTN                           Index;
   UINTN                           DataSize;
-  CAP_RELOCATION_INFO             RelocationInfo;
+  UINT64                          TotalImageSize;
+  UINT64                          TotalImageNameSize;
   IMAGE_INFO                      *CapsuleOnDiskBuf;
   EFI_HANDLE                      Handle;
   EFI_HANDLE                      TempHandle;
@@ -1235,6 +1236,7 @@ CoDRelocateCapsule(
   EFI_FILE_HANDLE                 RootDir;
   EFI_FILE_HANDLE                 TempCodFile;
   EFI_DEVICE_PATH                 *TempDevicePath;
+  BOOLEAN                         RelocationInfo;
 
   RootDir          = NULL;
   TempCodFile      = NULL;
@@ -1320,51 +1322,63 @@ CoDRelocateCapsule(
   //
   // Check if device used to relocate Capsule On Disk is big enough
   //
-  RelocationInfo.TotalImageSize     = 0;
-  RelocationInfo.TotalImageNameSize = 0;
+  TotalImageSize     = 0;
+  TotalImageNameSize = 0;
   for (Index = 0; Index < CapsuleOnDiskNum; Index++) {
     //
     // Overflow check
     //
-    if (MAX_ADDRESS - RelocationInfo.TotalImageSize <= CapsuleOnDiskBuf[Index].FileInfo->FileSize) {
+    if (MAX_ADDRESS - (UINTN)TotalImageSize <= CapsuleOnDiskBuf[Index].FileInfo->FileSize) {
       return EFI_INVALID_PARAMETER;
     }
 
-    if (MAX_ADDRESS - RelocationInfo.TotalImageNameSize <= StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName)) {
+    if (MAX_ADDRESS - (UINTN)TotalImageNameSize <= StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName)) {
       return EFI_INVALID_PARAMETER;
     }
 
-    RelocationInfo.TotalImageSize += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
-    RelocationInfo.TotalImageNameSize += StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName);
-    DEBUG((DEBUG_INFO, "RelocateCapsule: %x Size %x\n",CapsuleOnDiskBuf[Index].FileInfo->FileName, RelocationInfo.TotalImageSize));
+    TotalImageSize     += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
+    TotalImageNameSize += StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName);
+    DEBUG((DEBUG_INFO, "RelocateCapsule: %x Size %x\n",CapsuleOnDiskBuf[Index].FileInfo->FileName, CapsuleOnDiskBuf[Index].FileInfo->FileSize));
   }
 
-  DEBUG((DEBUG_INFO, "RelocateCapsule: TotalImageSize %x\n", RelocationInfo.TotalImageSize));
-  DEBUG((DEBUG_INFO, "RelocateCapsule: TotalImageNameSize %x\n", RelocationInfo.TotalImageNameSize));
-  
+  DEBUG((DEBUG_INFO, "RelocateCapsule: TotalImageSize %x\n", TotalImageSize));
+  DEBUG((DEBUG_INFO, "RelocateCapsule: TotalImageNameSize %x\n", TotalImageNameSize));
+
+  if (MAX_ADDRESS - (UINTN)TotalImageNameSize <= sizeof(UINT64) * 2 ||
+      MAX_ADDRESS - (UINTN)TotalImageSize <= (UINTN)TotalImageNameSize + sizeof(UINT64) * 2) {
+    return EFI_INVALID_PARAMETER;
+  }
+
   //
   // Check if CapsuleTotalSize. There could be reminder, so use LastBlock number directly
   //
-  if (DivU64x32(RelocationInfo.TotalImageSize + RelocationInfo.TotalImageNameSize, BlockIo->Media->BlockSize) >  BlockIo->Media->LastBlock) {
+  if (DivU64x32(TotalImageSize + TotalImageNameSize + sizeof(UINT64) * 2, BlockIo->Media->BlockSize) > BlockIo->Media->LastBlock) {
     DEBUG((DEBUG_ERROR, "RelocateCapsule: Relocation device isn't big enough to hold all Capsule on Disk!\n"));
-    DEBUG((DEBUG_ERROR, "TotalImageSize = %x\n", RelocationInfo.TotalImageSize));
-    DEBUG((DEBUG_ERROR, "TotalImageNameSize = %x\n", RelocationInfo.TotalImageNameSize));
+    DEBUG((DEBUG_ERROR, "TotalImageSize = %x\n", TotalImageSize));
+    DEBUG((DEBUG_ERROR, "TotalImageNameSize = %x\n", TotalImageNameSize));
     DEBUG((DEBUG_ERROR, "RelocationDev BlockSize = %x LastBlock = %x\n", BlockIo->Media->BlockSize, BlockIo->Media->LastBlock));
     Status = EFI_OUT_OF_RESOURCES;
     goto EXIT;
   }
 
-  CapsuleDataBuf = AllocatePool((UINTN)(RelocationInfo.TotalImageSize + RelocationInfo.TotalImageNameSize));
+  CapsuleDataBuf = AllocatePool(TotalImageSize + TotalImageNameSize + sizeof(UINT64) * 2);
   if (CapsuleDataBuf == NULL) {
     Status = EFI_OUT_OF_RESOURCES;
     goto EXIT;
   }
-  CapsuleNameBuf = CapsuleDataBuf + RelocationInfo.TotalImageSize;
+
+  //
+  // First 2 UINT64 reserved for TotalImageSize & TotalImageNameSize
+  //
+  CopyMem(CapsuleDataBuf, &TotalImageSize, sizeof(UINT64));
+  CopyMem(CapsuleDataBuf + sizeof(UINT64), &TotalImageNameSize, sizeof(UINT64));
+
+  CapsuleNameBuf = CapsuleDataBuf + sizeof(UINT64) * 2 + TotalImageSize;
 
   //
   // Line up all the Capsule on Disk and write to relocation disk at one time. It could save some time in disk write
   //
-  for (Index = 0, CapsulePtr = CapsuleDataBuf; Index < CapsuleOnDiskNum; Index++) {
+  for (Index = 0, CapsulePtr = CapsuleDataBuf + sizeof(UINT64) * 2; Index < CapsuleOnDiskNum; Index++) {
     CopyMem(CapsulePtr, CapsuleOnDiskBuf[Index].ImageAddress, CapsuleOnDiskBuf[Index].FileInfo->FileSize);
     CapsulePtr += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
   }
@@ -1414,7 +1428,7 @@ CoDRelocateCapsule(
   //
   // Always write at the begining of TempCap file
   //
-  DataSize = (UINTN)(RelocationInfo.TotalImageSize + RelocationInfo.TotalImageNameSize);
+  DataSize = (UINTN)(TotalImageSize + TotalImageNameSize + sizeof(UINT64) * 2);
   Status = TempCodFile->Write(
                           TempCodFile,
                           &DataSize,
@@ -1425,7 +1439,7 @@ CoDRelocateCapsule(
     goto EXIT;
   }
 
-  if (DataSize != (UINTN)(RelocationInfo.TotalImageSize + RelocationInfo.TotalImageNameSize)) {
+  if (DataSize != (UINTN)(TotalImageSize + TotalImageNameSize + sizeof(UINT64) * 2)) {
     Status = EFI_DEVICE_ERROR;
     goto EXIT;
   }
@@ -1434,11 +1448,12 @@ CoDRelocateCapsule(
   // Save Capsule On Disk relocation info to "CodRelocationInfo" Var
   // It is used in next reboot by TCB
   //
+  RelocationInfo = TRUE;
   Status = gRT->SetVariable(
                    COD_RELOCATION_INFO_VAR_NAME, 
                    &gEfiCapsuleVendorGuid, 
                    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
-                   sizeof (CAP_RELOCATION_INFO),
+                   sizeof (BOOLEAN),
                    &RelocationInfo
                    );
 

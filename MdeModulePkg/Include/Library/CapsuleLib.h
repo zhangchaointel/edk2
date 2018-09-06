@@ -31,14 +31,9 @@ typedef struct {
 } IMAGE_INFO;
 
 //
-// UINT64 Variable to save the total size of all Capsule On Disk during relocation
+// BOOLEAN Variable to save the total size of all Capsule On Disk during relocation
 //
 #define COD_RELOCATION_INFO_VAR_NAME   L"CodRelocationInfo"
-
-typedef struct {
-  UINT64 TotalImageSize;
-  UINT64 TotalImageNameSize;
-} CAP_RELOCATION_INFO;
 
 /**
   The firmware checks whether the capsule image is supported 
@@ -167,7 +162,7 @@ CoDClearCapsuleOnDiskFlag(
 EFI_STATUS
 EFIAPI
 CoDCheckCapsuleRelocationInfo(
-  OUT CAP_RELOCATION_INFO *CapsuleRelocInfo
+  OUT BOOLEAN *CapsuleRelocInfo
   );
 
 /**
