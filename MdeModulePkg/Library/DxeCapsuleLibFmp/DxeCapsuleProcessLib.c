@@ -102,6 +102,7 @@ extern BOOLEAN                   mDxeCapsuleLibEndOfDxe;
 BOOLEAN                          mNeedReset = FALSE;
 
 VOID                        **mCapsulePtr;
+CHAR16                      **mCapsuleNamePtr;
 EFI_STATUS                  *mCapsuleStatusArray;
 UINT32                      mCapsuleTotalNumber;
 
@@ -122,6 +123,7 @@ EFI_STATUS
 EFIAPI
 ProcessThisCapsuleImage (
   IN EFI_CAPSULE_HEADER  *CapsuleHeader,
+  IN CHAR16              *CapFileName,  OPTIONAL
   OUT BOOLEAN            *ResetRequired OPTIONAL
   );
 
@@ -220,11 +222,23 @@ InitCapsulePtr (
     mCapsuleTotalNumber = 0;
     return ;
   }
+
+  mCapsuleNamePtr   = (CHAR16 **) AllocateZeroPool (sizeof (CHAR16 *) * mCapsuleTotalNumber);
+  if (mCapsuleNamePtr == NULL) {
+    DEBUG ((DEBUG_ERROR, "Allocate mCapsulePtr fail!\n"));
+    FreePool (mCapsulePtr);
+    mCapsulePtr         = NULL;
+    mCapsuleTotalNumber = 0;
+    return ;
+  }
+
   mCapsuleStatusArray = (EFI_STATUS *) AllocateZeroPool (sizeof (EFI_STATUS) * mCapsuleTotalNumber);
   if (mCapsuleStatusArray == NULL) {
     DEBUG ((DEBUG_ERROR, "Allocate mCapsuleStatusArray fail!\n"));
     FreePool (mCapsulePtr);
-    mCapsulePtr = NULL;
+    FreePool (mCapsuleNamePtr);
+    mCapsulePtr         = NULL;
+    mCapsuleNamePtr     = NULL;
     mCapsuleTotalNumber = 0;
     return ;
   }
@@ -239,6 +253,19 @@ InitCapsulePtr (
     mCapsulePtr [Index++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
     HobPointer.Raw = GET_NEXT_HOB (HobPointer);
   }
+
+  //
+  // Find Capsule On Disk Names
+  //
+  HobPointer.Raw = GetHobList ();
+  Index = 0;
+  while ((HobPointer.Raw = GetNextGuidHob (&gEdkiiCapsuleOnDiskNameGuid, HobPointer.Raw)) != NULL) {
+    mCapsuleNamePtr [Index] = GET_GUID_HOB_DATA (HobPointer.Guid);
+    DEBUG((DEBUG_INFO, "Capsule On Disk file name: %S\n", mCapsuleNamePtr [Index]));
+    HobPointer.Raw = GET_NEXT_HOB (HobPointer);
+    Index++;
+  }
+
 }
 
 /**
@@ -414,6 +441,7 @@ ProcessTheseCapsules (
     // We didn't find a hob, so had no errors.
     //
     DEBUG ((DEBUG_ERROR, "We can not find capsule data in capsule update boot mode.\n"));
+    mNeedReset = TRUE;
     return EFI_SUCCESS;
   }
 
@@ -439,7 +467,7 @@ ProcessTheseCapsules (
     if (CompareGuid (&CapsuleHeader->CapsuleGuid, &gWindowsUxCapsuleGuid)) {
       DEBUG ((DEBUG_INFO, "ProcessThisCapsuleImage (Ux) - 0x%x\n", CapsuleHeader));
       DEBUG ((DEBUG_INFO, "Display logo capsule is found.\n"));
-      Status = ProcessThisCapsuleImage (CapsuleHeader, NULL);
+      Status = ProcessThisCapsuleImage (CapsuleHeader, mCapsuleNamePtr[Index], NULL);
       mCapsuleStatusArray [Index] = EFI_SUCCESS;
       DEBUG((DEBUG_INFO, "ProcessThisCapsuleImage (Ux) - %r\n", Status));
       break;
@@ -477,7 +505,7 @@ ProcessTheseCapsules (
       if ((!FirstRound) || (EmbeddedDriverCount == 0)) {
         DEBUG((DEBUG_INFO, "ProcessThisCapsuleImage - 0x%x\n", CapsuleHeader));
         ResetRequired = FALSE;
-        Status = ProcessThisCapsuleImage (CapsuleHeader, &ResetRequired);
+        Status = ProcessThisCapsuleImage (CapsuleHeader, mCapsuleNamePtr[Index], &ResetRequired);
         mCapsuleStatusArray [Index] = Status;
         DEBUG((DEBUG_INFO, "ProcessThisCapsuleImage - %r\n", Status));
 

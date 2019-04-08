@@ -3,7 +3,7 @@
 #
 #  Capsule library instance for DXE_DRIVER module types.
 #
-#  Copyright (c) 2016 - 2018, Intel Corporation. All rights reserved.<BR>
+#  Copyright (c) 2016 - 2019, Intel Corporation. All rights reserved.<BR>
 #  This program and the accompanying materials
 #  are licensed and made available under the terms and conditions of the BSD License
 #  which accompanies this distribution.  The full text of the license may be found at
@@ -35,6 +35,7 @@
   DxeCapsuleLib.c
   DxeCapsuleProcessLib.c
   DxeCapsuleReportLib.c
+  CapsuleOnDisk.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -53,6 +54,8 @@
   HobLib
   BmpSupportLib
   DisplayUpdateProgressLib
+  FileHandleLib
+  UefiBootManagerLib
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleMax                               ## CONSUMES
@@ -65,12 +68,18 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleStatusCodeUpdateFirmwareSuccess   ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleStatusCodeUpdateFirmwareFailed    ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleStatusCodeResettingSystem         ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskSupport                     ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCodRelocationDevPath                     ## SOMETIMES_CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCoDRelocationFileName                    ## CONSUMES
 
 [Protocols]
   gEsrtManagementProtocolGuid                   ## CONSUMES
   gEfiFirmwareManagementProtocolGuid            ## CONSUMES
   gEdkiiVariableLockProtocolGuid                ## SOMETIMES_CONSUMES
   gEdkiiFirmwareManagementProgressProtocolGuid  ## SOMETIMES_CONSUMES
+  gEfiSimpleFileSystemProtocolGuid        ## SOMETIMES_CONSUMES
+  gEfiBlockIoProtocolGuid                 ## CONSUMES
+  gEfiDiskIoProtocolGuid                  ## CONSUMES
 
 [Guids]
   gEfiFmpCapsuleGuid                      ## SOMETIMES_CONSUMES ## GUID
@@ -80,6 +89,10 @@
   gEfiCapsuleReportGuid
   gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable:L"CapsuleUpdateData"
   gEfiEndOfDxeEventGroupGuid              ## CONSUMES ## Event
+  gEfiPartTypeSystemPartGuid              ## SOMETIMES_CONSUMES
+  gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable:L"CodRelocationInfo"
+  gEfiGlobalVariableGuid
+  gEdkiiCapsuleOnDiskNameGuid             ## SOMETIMES_CONSUMES ## HOB
 
 [Depex]
   gEfiVariableWriteArchProtocolGuid

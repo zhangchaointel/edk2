@@ -10,7 +10,7 @@
   ValidateFmpCapsule(), and DisplayCapsuleImage() receives untrusted input and
   performs basic validation.
 
-  Copyright (c) 2016 - 2018, Intel Corporation. All rights reserved.<BR>
+  Copyright (c) 2016 - 2019, Intel Corporation. All rights reserved.<BR>
   This program and the accompanying materials
   are licensed and made available under the terms and conditions of the BSD License
   which accompanies this distribution.  The full text of the license may be found at
@@ -39,6 +39,7 @@
 #include <Library/CapsuleLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/UefiLib.h>
+#include <Library/PcdLib.h>
 #include <Library/BmpSupportLib.h>
 
 #include <Protocol/GraphicsOutput.h>
@@ -96,7 +97,8 @@ RecordFmpCapsuleStatusVariable (
   IN EFI_STATUS                                    CapsuleStatus,
   IN UINTN                                         PayloadIndex,
   IN EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER  *ImageHeader,
-  IN EFI_DEVICE_PATH_PROTOCOL                      *FmpDevicePath OPTIONAL
+  IN EFI_DEVICE_PATH_PROTOCOL                      *FmpDevicePath, OPTIONAL
+  IN CHAR16                                        *CapFileName    OPTIONAL
   );
 
 /**
@@ -1052,7 +1054,8 @@ RecordFmpCapsuleStatus (
   IN EFI_CAPSULE_HEADER                            *CapsuleHeader,
   IN EFI_STATUS                                    CapsuleStatus,
   IN UINTN                                         PayloadIndex,
-  IN EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER  *ImageHeader
+  IN EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER  *ImageHeader,
+  IN CHAR16                                        *CapFileName   OPTIONAL
   )
 {
   EFI_STATUS                                    Status;
@@ -1076,7 +1079,8 @@ RecordFmpCapsuleStatus (
     CapsuleStatus,
     PayloadIndex,
     ImageHeader,
-    FmpDevicePath
+    FmpDevicePath,
+    CapFileName
     );
 
   //
@@ -1132,6 +1136,7 @@ RecordFmpCapsuleStatus (
 EFI_STATUS
 ProcessFmpCapsuleImage (
   IN EFI_CAPSULE_HEADER  *CapsuleHeader,
+  IN CHAR16              *CapFileName,  OPTIONAL
   OUT BOOLEAN            *ResetRequired OPTIONAL
   )
 {
@@ -1151,7 +1156,7 @@ ProcessFmpCapsuleImage (
   BOOLEAN                                       Abort;
 
   if (!IsFmpCapsuleGuid(&CapsuleHeader->CapsuleGuid)) {
-    return ProcessFmpCapsuleImage ((EFI_CAPSULE_HEADER *)((UINTN)CapsuleHeader + CapsuleHeader->HeaderSize), ResetRequired);
+    return ProcessFmpCapsuleImage ((EFI_CAPSULE_HEADER *)((UINTN)CapsuleHeader + CapsuleHeader->HeaderSize), CapFileName, ResetRequired);
   }
 
   NotReady = FALSE;
@@ -1233,7 +1238,8 @@ ProcessFmpCapsuleImage (
         CapsuleHeader,
         EFI_NOT_READY,
         Index - FmpCapsuleHeader->EmbeddedDriverCount,
-        ImageHeader
+        ImageHeader,
+        CapFileName
         );
       continue;
     }
@@ -1245,7 +1251,8 @@ ProcessFmpCapsuleImage (
           CapsuleHeader,
           EFI_ABORTED,
           Index - FmpCapsuleHeader->EmbeddedDriverCount,
-          ImageHeader
+          ImageHeader,
+          CapFileName
           );
         continue;
       }
@@ -1268,7 +1275,8 @@ ProcessFmpCapsuleImage (
         CapsuleHeader,
         Status,
         Index - FmpCapsuleHeader->EmbeddedDriverCount,
-        ImageHeader
+        ImageHeader,
+        CapFileName
         );
     }
     if (HandleBuffer != NULL) {
@@ -1419,6 +1427,13 @@ SupportCapsuleImage (
   if (CompareGuid (&gWindowsUxCapsuleGuid, &CapsuleHeader->CapsuleGuid)) {
     return EFI_SUCCESS;
   }
+  
+  //
+  // Check capsule file name capsule if leveraging Capsule In RAM
+  //
+  if (CompareGuid (&gEdkiiCapsuleOnDiskNameGuid, &CapsuleHeader->CapsuleGuid)) {
+    return EFI_SUCCESS;
+  }
 
   if (IsFmpCapsule(CapsuleHeader)) {
     //
@@ -1453,6 +1468,7 @@ EFI_STATUS
 EFIAPI
 ProcessThisCapsuleImage (
   IN EFI_CAPSULE_HEADER  *CapsuleHeader,
+  IN CHAR16              *CapFileName,  OPTIONAL
   OUT BOOLEAN            *ResetRequired OPTIONAL
   )
 {
@@ -1490,7 +1506,7 @@ ProcessThisCapsuleImage (
     // Process EFI FMP Capsule
     //
     DEBUG((DEBUG_INFO, "ProcessFmpCapsuleImage ...\n"));
-    Status = ProcessFmpCapsuleImage(CapsuleHeader, ResetRequired);
+    Status = ProcessFmpCapsuleImage(CapsuleHeader, CapFileName, ResetRequired);
     DEBUG((DEBUG_INFO, "ProcessFmpCapsuleImage - %r\n", Status));
 
     return Status;
@@ -1517,7 +1533,7 @@ ProcessCapsuleImage (
   IN EFI_CAPSULE_HEADER  *CapsuleHeader
   )
 {
-  return ProcessThisCapsuleImage (CapsuleHeader, NULL);
+  return ProcessThisCapsuleImage (CapsuleHeader, NULL, NULL);
 }
 
 /**
