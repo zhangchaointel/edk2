@@ -425,6 +425,8 @@
   ## Include/Guid/S3StorageDeviceInitList.h
   gS3StorageDeviceInitListGuid = { 0x310e9b8c, 0xcf90, 0x421e, { 0x8e, 0x9b, 0x9e, 0xef, 0xb6, 0x17, 0xc8, 0xef } }
 
+  gEdkiiCapsuleOnDiskNameGuid = { 0x98c80a4f, 0xe16b, 0x4d11, { 0x93, 0x9a, 0xab, 0xe5, 0x61, 0x26, 0x3, 0x30 } }
+
 [Ppis]
   ## Include/Ppi/AtaController.h
   gPeiAtaControllerPpiGuid       = { 0xa45e60d1, 0xc719, 0x44aa, { 0xb0, 0x7a, 0xaa, 0x77, 0x7f, 0x85, 0x90, 0x6d }}
@@ -491,6 +493,9 @@
 
   ## Include/Ppi/AtaPassThru.h
   gEdkiiPeiAtaPassThruPpiGuid               = { 0xa16473fd, 0xd474, 0x4c89, { 0xae, 0xc7, 0x90, 0xb8, 0x3c, 0x73, 0x86, 0x9  } }
+  
+  ## Include/Ppi/CapsuleOnDisk.h
+  gEdkiiPeiCapsuleOnDiskPpiGuid   =  {0x71a9ea61, 0x5a35, 0x4a5d, {0xac, 0xef, 0x9c, 0xf8, 0x6d, 0x6d, 0x67, 0xe0}}
 
 [Protocols]
   ## Load File protocol provides capability to load and unload EFI image into memory and execute it.
@@ -1957,6 +1962,13 @@
   # @Prompt Recover file name in PEI phase
   gEfiMdeModulePkgTokenSpaceGuid.PcdRecoveryFileName|L"FVMAIN.FV"|VOID*|0x30001045
 
+  ## This is Capsule Temp Relocation file name in PEI phase.
+  #  The file must be in the root directory.
+  #  The file name must be the 8.3 format.
+  #  The PCD data must be in UNICODE format.
+  # @Prompt Recover file name in PEI phase
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCoDRelocationFileName|L"TempCod.tmp"|VOID*|0x30001048
+
   ## This PCD hold a list GUIDs for the ImageTypeId to indicate the
   #  FMP capsule is a system FMP.
   # @Prompt A list of system FMP ImageTypeId GUIDs
@@ -1967,6 +1979,16 @@
   #  This mask should be applied when creating 1:1 virtual to physical mapping tables.
   # @Prompt The address mask when memory encryption is enabled.
   gEfiMdeModulePkgTokenSpaceGuid.PcdPteMemoryEncryptionAddressOrMask|0x0|UINT64|0x30001047
+
+  ## Specify if Capsule On Disk feature is supported
+  # @Prompt If Capsule On Disk feature is supported.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskSupport|FALSE|BOOLEAN|0x0000002d
+
+  ## Specify if Capsule On RAM feature is supported
+  # @Prompt If Capsule On RAM feature is supported.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnRamSupport|TRUE|BOOLEAN|0x0000002e
+
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCodRelocationDevPath|{0xFF, 0xFF, 0xFF, 0xFF}|VOID*|0x0000002f
 
 [PcdsPatchableInModule]
   ## Specify memory size with page number for PEI code when
