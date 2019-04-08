@@ -5,7 +5,7 @@
 #  PPI to discover and dispatch the DXE Foundation and components that are
 #  needed to run the DXE Foundation.
 #
-#  Copyright (c) 2006 - 2018, Intel Corporation. All rights reserved.<BR>
+#  Copyright (c) 2006 - 2019, Intel Corporation. All rights reserved.<BR>
 #  Copyright (c) 2017, AMD Incorporated. All rights reserved.<BR>
 #
 #  This program and the accompanying materials
@@ -93,6 +93,8 @@
   ## UNDEFINED # HOB
   gEfiVectorHandoffInfoPpiGuid
   gEfiPeiMemoryDiscoveredPpiGuid    ## SOMETIMES_CONSUMES
+  gEfiPeiBootInCapsuleOnDiskModePpiGuid  ## SOMETIMES_CONSUMES
+  gEdkiiPeiCapsuleOnDiskPpiGuid          ## SOMETIMES_CONSUMES # Consumed on firmware update boot path
 
 [Guids]
   ## SOMETIMES_CONSUMES ## Variable:L"MemoryTypeInformation"
