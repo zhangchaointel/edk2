@@ -4,7 +4,7 @@
   It installs the Capsule Architectural Protocol defined in PI1.0a to signify
   the capsule runtime services are ready.
 
-Copyright (c) 2006 - 2018, Intel Corporation. All rights reserved.<BR>
+Copyright (c) 2006 - 2019, Intel Corporation. All rights reserved.<BR>
 This program and the accompanying materials
 are licensed and made available under the terms and conditions of the BSD License
 which accompanies this distribution.  The full text of the license may be found at
@@ -76,6 +76,14 @@ UpdateCapsule (
   BOOLEAN                   InitiateReset;
   CHAR16                    CapsuleVarName[30];
   CHAR16                    *TempVarName;
+
+  //
+  // Check if platform support Capsule On RAM or not
+  // Platform could choose to drop CapsulePei/CapsuleX64 and do not support Capsule On RAM 
+  //
+  if (!PcdGetBool(PcdCapsuleInRamSupport)) {
+    return EFI_UNSUPPORTED;
+  }
 
   //
   // Capsule Count can't be less than one.

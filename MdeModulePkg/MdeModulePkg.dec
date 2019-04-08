@@ -1986,7 +1986,7 @@
 
   ## Specify if Capsule On RAM feature is supported
   # @Prompt If Capsule On RAM feature is supported.
-  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnRamSupport|TRUE|BOOLEAN|0x0000002e
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleInRamSupport|TRUE|BOOLEAN|0x0000002e
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdCodRelocationDevPath|{0xFF, 0xFF, 0xFF, 0xFF}|VOID*|0x0000002f
 
