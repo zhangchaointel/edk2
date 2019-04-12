@@ -1364,21 +1364,21 @@ CoDRelocateCapsule(
   UINTN                           NumberOfHandles;
   EFI_BLOCK_IO_PROTOCOL           *BlockIo;
   UINT8                           *CapsuleDataBuf;
-  UINT8                           *CapsuleNameBuf;
   UINT8                           *CapsulePtr;
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
   UINTN                           DefRelocationDevPath;
   EFI_FILE_HANDLE                 RootDir;
   EFI_FILE_HANDLE                 TempCodFile;
+  UINTN                           TempCodFileSize;
   EFI_DEVICE_PATH                 *TempDevicePath;
   BOOLEAN                         RelocationInfo;
   UINT16                          LoadOptionNumber;
+  EFI_CAPSULE_HEADER              FileNameCapsuleHeader;
 
   RootDir          = NULL;
   TempCodFile      = NULL;
   HandleBuffer     = NULL;
   CapsuleDataBuf   = NULL;
-  CapsuleNameBuf   = NULL;
   CapsuleOnDiskBuf = NULL;
   NumberOfHandles  = 0;
 
@@ -1485,10 +1485,12 @@ CoDRelocateCapsule(
     return EFI_INVALID_PARAMETER;
   }
 
+  TempCodFileSize = sizeof(UINT64) + TotalImageSize + sizeof(EFI_CAPSULE_HEADER) + TotalImageNameSize;
+
   //
   // Check if CapsuleTotalSize. There could be reminder, so use LastBlock number directly
   //
-  if (DivU64x32(TotalImageSize + TotalImageNameSize + sizeof(UINT64) * 2, BlockIo->Media->BlockSize) > BlockIo->Media->LastBlock) {
+  if (DivU64x32(TempCodFileSize, BlockIo->Media->BlockSize) > BlockIo->Media->LastBlock) {
     DEBUG((DEBUG_ERROR, "RelocateCapsule: Relocation device isn't big enough to hold all Capsule on Disk!\n"));
     DEBUG((DEBUG_ERROR, "TotalImageSize = %x\n", TotalImageSize));
     DEBUG((DEBUG_ERROR, "TotalImageNameSize = %x\n", TotalImageNameSize));
@@ -1497,32 +1499,39 @@ CoDRelocateCapsule(
     goto EXIT;
   }
 
-  CapsuleDataBuf = AllocatePool(TotalImageSize + TotalImageNameSize + sizeof(UINT64) * 2);
+  CapsuleDataBuf = AllocatePool(TempCodFileSize);
   if (CapsuleDataBuf == NULL) {
     Status = EFI_OUT_OF_RESOURCES;
     goto EXIT;
   }
 
   //
-  // First 2 UINT64 reserved for TotalImageSize & TotalImageNameSize
+  // First UINT64 reserved for total image size, including capsule name capsule.
   //
-  CopyMem(CapsuleDataBuf, &TotalImageSize, sizeof(UINT64));
-  CopyMem(CapsuleDataBuf + sizeof(UINT64), &TotalImageNameSize, sizeof(UINT64));
-
-  CapsuleNameBuf = CapsuleDataBuf + sizeof(UINT64) * 2 + TotalImageSize;
+  *(UINT64 *) CapsuleDataBuf = TotalImageSize + sizeof(EFI_CAPSULE_HEADER) + TotalImageNameSize;
 
   //
   // Line up all the Capsule on Disk and write to relocation disk at one time. It could save some time in disk write
   //
-  for (Index = 0, CapsulePtr = CapsuleDataBuf + sizeof(UINT64) * 2; Index < CapsuleOnDiskNum; Index++) {
+  for (Index = 0, CapsulePtr = CapsuleDataBuf + sizeof(UINT64); Index < CapsuleOnDiskNum; Index++) {
     CopyMem(CapsulePtr, CapsuleOnDiskBuf[Index].ImageAddress, CapsuleOnDiskBuf[Index].FileInfo->FileSize);
     CapsulePtr += CapsuleOnDiskBuf[Index].FileInfo->FileSize;
   }
 
   //
+  // Line the capsule header for capsule name capsule.
+  //
+  CopyGuid(&FileNameCapsuleHeader.CapsuleGuid, &gEdkiiCapsuleOnDiskNameGuid);
+  FileNameCapsuleHeader.CapsuleImageSize = (UINT32) TotalImageNameSize + sizeof(EFI_CAPSULE_HEADER);
+  FileNameCapsuleHeader.Flags            = CAPSULE_FLAGS_PERSIST_ACROSS_RESET;
+  FileNameCapsuleHeader.HeaderSize       = sizeof(EFI_CAPSULE_HEADER);
+  CopyMem(CapsulePtr, &FileNameCapsuleHeader, FileNameCapsuleHeader.HeaderSize);
+  CapsulePtr += FileNameCapsuleHeader.HeaderSize;
+
+  //
   // Line up all the Capsule file names.
   //
-  for (Index = 0, CapsulePtr = CapsuleNameBuf; Index < CapsuleOnDiskNum; Index++) {
+  for (Index = 0; Index < CapsuleOnDiskNum; Index++) {
     CopyMem(CapsulePtr, CapsuleOnDiskBuf[Index].FileInfo->FileName, StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName));
     CapsulePtr += StrSize(CapsuleOnDiskBuf[Index].FileInfo->FileName);
   }
@@ -1564,7 +1573,7 @@ CoDRelocateCapsule(
   //
   // Always write at the begining of TempCap file
   //
-  DataSize = (UINTN)(TotalImageSize + TotalImageNameSize + sizeof(UINT64) * 2);
+  DataSize = TempCodFileSize;
   Status = TempCodFile->Write(
                           TempCodFile,
                           &DataSize,
@@ -1575,7 +1584,7 @@ CoDRelocateCapsule(
     goto EXIT;
   }
 
-  if (DataSize != (UINTN)(TotalImageSize + TotalImageNameSize + sizeof(UINT64) * 2)) {
+  if (DataSize != TempCodFileSize) {
     Status = EFI_DEVICE_ERROR;
     goto EXIT;
   }
@@ -1750,7 +1759,7 @@ CoDReUseCapsuleOnRam (
   @param[in]    MaxRetry             Max Connection Retry. Stall 100ms between each connection try to ensure
                                      devices like USB can get enumerated.
 
-  @retval EFI_SUCCESS   Deliver capsule through Capsule On Ram successfully.
+  @retval EFI_SUCCESS   Remove the temp file successfully.
 
 **/
 EFI_STATUS

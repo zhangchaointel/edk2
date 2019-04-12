@@ -92,7 +92,7 @@
   gEfiPartTypeSystemPartGuid              ## SOMETIMES_CONSUMES
   gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable:L"CodRelocationInfo"
   gEfiGlobalVariableGuid
-  gEdkiiCapsuleOnDiskNameGuid             ## SOMETIMES_CONSUMES ## HOB
+  gEdkiiCapsuleOnDiskNameGuid             ## SOMETIMES_CONSUMES ## GUID
 
 [Depex]
   gEfiVariableWriteArchProtocolGuid

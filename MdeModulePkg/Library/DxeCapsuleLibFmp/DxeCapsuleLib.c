@@ -310,6 +310,96 @@ ValidateFmpCapsule (
 }
 
 /**
+  Return if this capsule is a capsule name capsule, based upon CapsuleHeader.
+
+  @param[in] CapsuleHeader A pointer to EFI_CAPSULE_HEADER
+
+  @retval TRUE  It is a capsule name capsule.
+  @retval FALSE It is not a capsule name capsule.
+**/
+BOOLEAN
+IsCapsuleNameCapsule (
+  IN EFI_CAPSULE_HEADER         *CapsuleHeader
+  )
+{
+  return CompareGuid (&CapsuleHeader->CapsuleGuid, &gEdkiiCapsuleOnDiskNameGuid);
+}
+
+/**
+  Check the integrity of the capsule name capsule.
+  If the capsule is vaild, return the physical address of each capsule name string.
+
+  @param[in]  CapsuleHeader   Pointer to the capsule header of a capsule name capsule.
+  @param[out] CapsuleNameNum  Number of capsule name.
+
+  @retval NULL                Capsule name capsule is not valid.
+  @retval CapsuleNameBuf      Array of capsule name physical address.
+
+**/
+EFI_PHYSICAL_ADDRESS *
+ValidateCapsuleNameCapsuleIntegrity (
+  IN  EFI_CAPSULE_HEADER            *CapsuleHeader,
+  OUT UINTN                         *CapsuleNameNum
+  )
+{
+  UINT8                    *CapsuleNamePtr;
+  UINT8                    *CapsuleNameBufEnd;
+  UINT8                    *CapsulePtr;
+  UINTN                    Index;
+  UINTN                    StringSize;
+  EFI_PHYSICAL_ADDRESS     *CapsuleNameBuf;
+
+  if (!IsCapsuleNameCapsule (CapsuleHeader)) {
+    return NULL;
+  }
+
+  *CapsuleNameNum = 0;
+  Index = 0;
+
+  //
+  // In case the capsule name strings are not aligned on a 16-bit boundary,
+  // copy them to new allocated memory.
+  //
+  CapsulePtr = AllocatePool (CapsuleHeader->CapsuleImageSize);
+  if (CapsulePtr == NULL) {
+    return NULL;
+  }
+
+  CopyMem (CapsulePtr, CapsuleHeader, CapsuleHeader->CapsuleImageSize);
+  CapsuleNamePtr = CapsulePtr + CapsuleHeader->HeaderSize;
+  CapsuleNameBufEnd = CapsulePtr + CapsuleHeader->CapsuleImageSize;
+
+  while (CapsuleNamePtr < CapsuleNameBufEnd) {
+    CapsuleNamePtr += StrnSizeS ((CHAR16 *) CapsuleNamePtr, CapsuleHeader->CapsuleImageSize);
+    (*CapsuleNameNum) ++;
+  }
+
+  //
+  // Integrity check.
+  //
+  if (CapsuleNamePtr != CapsuleNameBufEnd) {
+    FreePool (CapsulePtr);
+    return NULL;
+  }
+
+  CapsuleNameBuf = AllocatePool (*CapsuleNameNum * sizeof (EFI_PHYSICAL_ADDRESS));
+  if (CapsuleNameBuf == NULL) {
+    FreePool (CapsulePtr);
+    return NULL;
+  }
+
+  CapsuleNamePtr = CapsulePtr + CapsuleHeader->HeaderSize;
+  while (CapsuleNamePtr < CapsuleNameBufEnd) {
+    StringSize= StrnSizeS ((CHAR16 *) CapsuleNamePtr, CapsuleHeader->CapsuleImageSize);
+    CapsuleNameBuf[Index] = (EFI_PHYSICAL_ADDRESS) CapsuleNamePtr;
+    CapsuleNamePtr += StringSize;
+    Index ++;
+  }
+
+  return CapsuleNameBuf;
+}
+
+/**
   Those capsules supported by the firmwares.
 
   Caution: This function may receive untrusted input.

@@ -73,7 +73,7 @@
   gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable:L"CapsuleUpdateData"
   gEfiEndOfDxeEventGroupGuid              ## CONSUMES ## Event
   gEfiEventVirtualAddressChangeGuid       ## CONSUMES ## Event
-  gEdkiiCapsuleOnDiskNameGuid             ## SOMETIMES_CONSUMES ## HOB
+  gEdkiiCapsuleOnDiskNameGuid             ## SOMETIMES_CONSUMES ## GUID
 
 [Depex]
   gEfiVariableWriteArchProtocolGuid

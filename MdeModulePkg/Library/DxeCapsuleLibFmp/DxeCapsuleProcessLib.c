@@ -98,6 +98,36 @@ IsValidCapsuleHeader (
   IN UINT64              CapsuleSize
   );
 
+/**
+  Return if this capsule is a capsule name capsule, based upon CapsuleHeader.
+
+  @param[in] CapsuleHeader A pointer to EFI_CAPSULE_HEADER
+
+  @retval TRUE  It is a capsule name capsule.
+  @retval FALSE It is not a capsule name capsule.
+**/
+BOOLEAN
+IsCapsuleNameCapsule (
+  IN EFI_CAPSULE_HEADER         *CapsuleHeader
+  );
+
+/**
+  Check the integrity of the capsule name capsule.
+  If the capsule is vaild, return the physical address of each capsule name string.
+
+  @param[in]  CapsuleHeader   Pointer to the capsule header of a capsule name capsule.
+  @param[out] CapsuleNameNum  Number of capsule name.
+
+  @retval NULL                Capsule name capsule is not valid.
+  @retval CapsuleNameBuf      Array of capsule name physical address.
+
+**/
+EFI_PHYSICAL_ADDRESS *
+ValidateCapsuleNameCapsuleIntegrity (
+  IN  EFI_CAPSULE_HEADER            *CapsuleHeader,
+  OUT UINTN                         *CapsuleNameNum
+  );
+
 extern BOOLEAN                   mDxeCapsuleLibEndOfDxe;
 BOOLEAN                          mNeedReset = FALSE;
 
@@ -193,6 +223,17 @@ InitCapsulePtr (
 {
   EFI_PEI_HOB_POINTERS        HobPointer;
   UINTN                       Index;
+  UINTN                       Index2;
+  UINTN                       Index3;
+  UINTN                       CapsuleNameNumber;
+  UINTN                       CapsuleNameTotalNumber;
+  UINTN                       CapsuleNameCapsuleTotalNumber;
+  VOID                        **CapsuleNameCapsulePtr;
+  EFI_PHYSICAL_ADDRESS        *CapsuleNameAddress;
+
+  CapsuleNameNumber             = 0;
+  CapsuleNameTotalNumber        = 0;
+  CapsuleNameCapsuleTotalNumber = 0;
 
   //
   // Find all capsule images from hob
@@ -202,7 +243,11 @@ InitCapsulePtr (
     if (!IsValidCapsuleHeader((VOID *)(UINTN)HobPointer.Capsule->BaseAddress, HobPointer.Capsule->Length)) {
       HobPointer.Header->HobType = EFI_HOB_TYPE_UNUSED; // Mark this hob as invalid
     } else {
-      mCapsuleTotalNumber++;
+      if (IsCapsuleNameCapsule((VOID *)(UINTN)HobPointer.Capsule->BaseAddress)) {
+        CapsuleNameCapsuleTotalNumber++;
+      } else {
+        mCapsuleTotalNumber++;
+      }
     }
     HobPointer.Raw = GET_NEXT_HOB (HobPointer);
   }
@@ -223,49 +268,80 @@ InitCapsulePtr (
     return ;
   }
 
-  mCapsuleNamePtr   = (CHAR16 **) AllocateZeroPool (sizeof (CHAR16 *) * mCapsuleTotalNumber);
-  if (mCapsuleNamePtr == NULL) {
-    DEBUG ((DEBUG_ERROR, "Allocate mCapsulePtr fail!\n"));
-    FreePool (mCapsulePtr);
-    mCapsulePtr         = NULL;
-    mCapsuleTotalNumber = 0;
-    return ;
-  }
-
   mCapsuleStatusArray = (EFI_STATUS *) AllocateZeroPool (sizeof (EFI_STATUS) * mCapsuleTotalNumber);
   if (mCapsuleStatusArray == NULL) {
     DEBUG ((DEBUG_ERROR, "Allocate mCapsuleStatusArray fail!\n"));
     FreePool (mCapsulePtr);
-    FreePool (mCapsuleNamePtr);
     mCapsulePtr         = NULL;
-    mCapsuleNamePtr     = NULL;
     mCapsuleTotalNumber = 0;
     return ;
   }
   SetMemN (mCapsuleStatusArray, sizeof (EFI_STATUS) * mCapsuleTotalNumber, EFI_NOT_READY);
 
+  if (CapsuleNameCapsuleTotalNumber != 0) {
+    CapsuleNameCapsulePtr =  (VOID **) AllocateZeroPool (sizeof (VOID *) * CapsuleNameCapsuleTotalNumber);
+    if (CapsuleNameCapsulePtr == NULL) {
+      DEBUG ((DEBUG_ERROR, "Allocate CapsuleNameCapsulePtr fail!\n"));
+      FreePool (mCapsulePtr);
+      FreePool (mCapsuleStatusArray);
+      mCapsulePtr         = NULL;
+      mCapsuleStatusArray = NULL;
+      mCapsuleTotalNumber = 0;
+      return ;
+    }
+  }
+
   //
   // Find all capsule images from hob
   //
   HobPointer.Raw = GetHobList ();
-  Index = 0;
+  Index  = 0;
+  Index2 = 0;
   while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
-    mCapsulePtr [Index++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
+    if (!IsCapsuleNameCapsule ((VOID *) (UINTN) HobPointer.Capsule->BaseAddress)) {
+      mCapsulePtr [Index++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
+    } else {
+      CapsuleNameCapsulePtr [Index2++] = (VOID *) (UINTN) HobPointer.Capsule->BaseAddress;
+    }
     HobPointer.Raw = GET_NEXT_HOB (HobPointer);
   }
 
   //
   // Find Capsule On Disk Names
   //
-  HobPointer.Raw = GetHobList ();
-  Index = 0;
-  while ((HobPointer.Raw = GetNextGuidHob (&gEdkiiCapsuleOnDiskNameGuid, HobPointer.Raw)) != NULL) {
-    mCapsuleNamePtr [Index] = GET_GUID_HOB_DATA (HobPointer.Guid);
-    DEBUG((DEBUG_INFO, "Capsule On Disk file name: %S\n", mCapsuleNamePtr [Index]));
-    HobPointer.Raw = GET_NEXT_HOB (HobPointer);
-    Index++;
+  for (Index = 0; Index < CapsuleNameCapsuleTotalNumber; Index ++) {
+    CapsuleNameAddress = ValidateCapsuleNameCapsuleIntegrity (CapsuleNameCapsulePtr[Index], &CapsuleNameNumber);
+    if (CapsuleNameAddress != NULL ) {
+      CapsuleNameTotalNumber += CapsuleNameNumber;
+    }
   }
 
+  if (CapsuleNameTotalNumber == mCapsuleTotalNumber) {
+    mCapsuleNamePtr = (CHAR16 **) AllocateZeroPool (sizeof (CHAR16 *) * mCapsuleTotalNumber);
+    if (mCapsuleNamePtr == NULL) {
+      DEBUG ((DEBUG_ERROR, "Allocate mCapsuleNamePtr fail!\n"));
+      FreePool (mCapsulePtr);
+      FreePool (mCapsuleStatusArray);
+      FreePool (CapsuleNameCapsulePtr);
+      mCapsulePtr         = NULL;
+      mCapsuleStatusArray = NULL;
+      mCapsuleTotalNumber = 0;
+      return ;
+    }
+
+    for (Index = 0, Index3 = 0; Index < CapsuleNameCapsuleTotalNumber; Index ++) {
+      CapsuleNameAddress = ValidateCapsuleNameCapsuleIntegrity (CapsuleNameCapsulePtr[Index], &CapsuleNameNumber);
+      if (CapsuleNameAddress != NULL ) {
+        for (Index2 = 0; Index2 < CapsuleNameNumber; Index2 ++) {
+          mCapsuleNamePtr[Index3 ++] = (CHAR16 *)(UINTN) CapsuleNameAddress[Index2];
+        }
+      }
+    }
+  } else {
+    mCapsuleNamePtr = NULL;
+  }
+
+  FreePool (CapsuleNameCapsulePtr);
 }
 
 /**
